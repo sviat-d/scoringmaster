@@ -1,15 +1,17 @@
 import uuid
 import csv
 import io
+import json
 import os
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, UploadFile, File, Form, Request
+from fastapi import FastAPI, UploadFile, File, Form, Request, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sse_starlette.sse import EventSourceResponse
 
 from scorer.pipeline import score_leads
+from scorer.sheets import score_sheet, is_sheets_available
 
 app = FastAPI(title="Lead Scorer", version="1.0.0")
 
@@ -22,7 +24,10 @@ _jobs: dict[str, bytes] = {}
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(
+        "index.html",
+        {"request": request, "sheets_available": is_sheets_available()},
+    )
 
 
 @app.post("/score")
@@ -84,6 +89,30 @@ async def download(job_id: str):
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=scored_{job_id[:8]}.csv"},
     )
+
+
+@app.get("/score-sheet")
+async def score_sheet_sse(
+    sheet_url: str = Query(...),
+    mode: str = Query("inxy_leads"),
+):
+    """SSE endpoint: scores domains from a Google Sheet and streams progress."""
+    if mode not in ("inxy_leads", "founders_pl"):
+        mode = "inxy_leads"
+
+    if not is_sheets_available():
+        async def _error():
+            yield {
+                "event": "error",
+                "data": json.dumps({"message": "Google Sheets credentials not configured"}),
+            }
+        return EventSourceResponse(_error())
+
+    async def _stream():
+        async for event in score_sheet(sheet_url, mode):
+            yield {"event": event["event"], "data": json.dumps(event)}
+
+    return EventSourceResponse(_stream())
 
 
 ENRICHED_COLUMNS = [
