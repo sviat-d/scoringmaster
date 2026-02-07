@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lead Scorer</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f1117;
+            color: #e1e4e8;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            max-width: 560px;
+            width: 100%;
+            padding: 2rem;
+        }
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            color: #fff;
+        }
+        .subtitle {
+            color: #8b949e;
+            margin-bottom: 2rem;
+            font-size: 0.95rem;
+        }
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 2rem;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+            color: #c9d1d9;
+        }
+        .hint {
+            font-size: 0.8rem;
+            color: #8b949e;
+            margin-bottom: 1rem;
+        }
+        select, input[type="file"] {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            color: #e1e4e8;
+            font-size: 0.95rem;
+            margin-bottom: 1.5rem;
+        }
+        select:focus, input[type="file"]:focus {
+            outline: none;
+            border-color: #58a6ff;
+        }
+        .file-upload {
+            border: 2px dashed #30363d;
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            margin-bottom: 1.5rem;
+            transition: border-color 0.2s;
+        }
+        .file-upload:hover {
+            border-color: #58a6ff;
+        }
+        .file-upload input {
+            display: none;
+        }
+        .file-upload .icon {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+        .file-upload .text {
+            color: #8b949e;
+        }
+        .file-upload .filename {
+            color: #58a6ff;
+            font-weight: 600;
+            margin-top: 0.5rem;
+        }
+        button {
+            width: 100%;
+            padding: 0.85rem;
+            background: #238636;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover { background: #2ea043; }
+        button:disabled {
+            background: #21262d;
+            color: #484f58;
+            cursor: not-allowed;
+        }
+        .spinner {
+            display: none;
+            text-align: center;
+            padding: 2rem;
+            color: #8b949e;
+        }
+        .spinner.active { display: block; }
+        .spinner .dots::after {
+            content: '';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+        @keyframes dots {
+            0% { content: ''; }
+            25% { content: '.'; }
+            50% { content: '..'; }
+            75% { content: '...'; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Lead Scorer</h1>
+        <p class="subtitle">Upload a CSV with company domains to score and enrich leads</p>
+
+        <div class="card">
+            <form id="scoreForm" action="/score" method="post" enctype="multipart/form-data">
+                <label for="mode">Scoring Mode</label>
+                <select name="mode" id="mode">
+                    <option value="inxy_leads" selected>Inxy Leads (Crypto Payments)</option>
+                    <option value="founders_pl">Founders PL (Product Founders)</option>
+                </select>
+
+                <label>CSV File</label>
+                <div class="hint">Must contain a "Company Domain" column (e.g. example.com)</div>
+                <div class="file-upload" id="dropzone">
+                    <input type="file" name="file" id="fileInput" accept=".csv" required>
+                    <div class="icon">&#128196;</div>
+                    <div class="text">Click to select or drag & drop CSV</div>
+                    <div class="filename" id="fileName"></div>
+                </div>
+
+                <button type="submit" id="submitBtn">Score Leads</button>
+            </form>
+
+            <div class="spinner" id="spinner">
+                <p>Scoring leads<span class="dots"></span></p>
+                <p style="margin-top: 0.5rem; font-size: 0.85rem;">
+                    This may take a few minutes depending on the number of domains
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('fileInput');
+        const fileName = document.getElementById('fileName');
+        const form = document.getElementById('scoreForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const spinner = document.getElementById('spinner');
+
+        dropzone.addEventListener('click', () => fileInput.click());
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = '#58a6ff';
+        });
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.style.borderColor = '#30363d';
+        });
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = '#30363d';
+            if (e.dataTransfer.files.length) {
+                fileInput.files = e.dataTransfer.files;
+                fileName.textContent = e.dataTransfer.files[0].name;
+            }
+        });
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length) {
+                fileName.textContent = fileInput.files[0].name;
+            }
+        });
+
+        form.addEventListener('submit', () => {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Processing...';
+            spinner.classList.add('active');
+        });
+    </script>
+</body>
+</html>
