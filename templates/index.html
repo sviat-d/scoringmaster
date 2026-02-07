@@ -16,7 +16,7 @@
             justify-content: center;
         }
         .container {
-            max-width: 560px;
+            max-width: 600px;
             width: 100%;
             padding: 2rem;
         }
@@ -27,13 +27,47 @@
         }
         .subtitle {
             color: #8b949e;
-            margin-bottom: 2rem;
+            margin-bottom: 1.5rem;
             font-size: 0.95rem;
+        }
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 0;
+        }
+        .tab {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-bottom: none;
+            color: #8b949e;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .tab:first-child { border-radius: 8px 0 0 0; }
+        .tab:last-child { border-radius: 0 8px 0 0; }
+        .tab.active {
+            background: #161b22;
+            color: #e1e4e8;
+            border-bottom-color: #161b22;
+        }
+        .tab:not(.active):hover { background: #161b22; color: #c9d1d9; }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
         }
         .card {
             background: #161b22;
             border: 1px solid #30363d;
-            border-radius: 12px;
+            border-top: none;
+            border-radius: 0 0 12px 12px;
             padding: 2rem;
         }
         label {
@@ -48,7 +82,7 @@
             color: #8b949e;
             margin-bottom: 1rem;
         }
-        select, input[type="file"] {
+        select, input[type="text"] {
             width: 100%;
             padding: 0.75rem 1rem;
             background: #0d1117;
@@ -58,7 +92,7 @@
             font-size: 0.95rem;
             margin-bottom: 1.5rem;
         }
-        select:focus, input[type="file"]:focus {
+        select:focus, input[type="text"]:focus {
             outline: none;
             border-color: #58a6ff;
         }
@@ -71,25 +105,12 @@
             margin-bottom: 1.5rem;
             transition: border-color 0.2s;
         }
-        .file-upload:hover {
-            border-color: #58a6ff;
-        }
-        .file-upload input {
-            display: none;
-        }
-        .file-upload .icon {
-            font-size: 2rem;
-            margin-bottom: 0.5rem;
-        }
-        .file-upload .text {
-            color: #8b949e;
-        }
-        .file-upload .filename {
-            color: #58a6ff;
-            font-weight: 600;
-            margin-top: 0.5rem;
-        }
-        button {
+        .file-upload:hover { border-color: #58a6ff; }
+        .file-upload input { display: none; }
+        .file-upload .icon { font-size: 2rem; margin-bottom: 0.5rem; }
+        .file-upload .text { color: #8b949e; }
+        .file-upload .filename { color: #58a6ff; font-weight: 600; margin-top: 0.5rem; }
+        button, .btn {
             width: 100%;
             padding: 0.85rem;
             background: #238636;
@@ -101,8 +122,8 @@
             cursor: pointer;
             transition: background 0.2s;
         }
-        button:hover { background: #2ea043; }
-        button:disabled {
+        button:hover, .btn:hover { background: #2ea043; }
+        button:disabled, .btn:disabled {
             background: #21262d;
             color: #484f58;
             cursor: not-allowed;
@@ -114,53 +135,216 @@
             color: #8b949e;
         }
         .spinner.active { display: block; }
-        .spinner .dots::after {
-            content: '';
-            animation: dots 1.5s steps(4, end) infinite;
+        /* Progress UI */
+        .progress-container {
+            display: none;
+            margin-top: 1.5rem;
         }
-        @keyframes dots {
-            0% { content: ''; }
-            25% { content: '.'; }
-            50% { content: '..'; }
-            75% { content: '...'; }
+        .progress-container.active { display: block; }
+        .progress-bar-wrap {
+            background: #0d1117;
+            border-radius: 8px;
+            height: 8px;
+            margin-bottom: 1rem;
+            overflow: hidden;
         }
+        .progress-bar {
+            height: 100%;
+            background: #238636;
+            border-radius: 8px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+        .progress-text {
+            font-size: 0.85rem;
+            color: #8b949e;
+            margin-bottom: 0.75rem;
+        }
+        .progress-log {
+            background: #0d1117;
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 0.8rem;
+            line-height: 1.6;
+        }
+        .progress-log .entry {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+        .progress-log .domain { color: #c9d1d9; }
+        .progress-log .cat-a { color: #3fb950; }
+        .progress-log .cat-b { color: #58a6ff; }
+        .progress-log .cat-c { color: #d29922; }
+        .progress-log .cat-reject { color: #f85149; }
+        /* Summary cards */
+        .summary {
+            display: none;
+            margin-top: 1.5rem;
+        }
+        .summary.active { display: block; }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+        .stat {
+            background: #0d1117;
+            border-radius: 8px;
+            padding: 0.75rem;
+            text-align: center;
+        }
+        .stat .number { font-size: 1.5rem; font-weight: 700; }
+        .stat .label { font-size: 0.75rem; color: #8b949e; margin-top: 0.2rem; }
+        .stat.cat-a .number { color: #3fb950; }
+        .stat.cat-b .number { color: #58a6ff; }
+        .stat.cat-c .number { color: #d29922; }
+        .stat.cat-reject .number { color: #f85149; }
+        .success-msg {
+            text-align: center;
+            padding: 1rem;
+            color: #3fb950;
+            font-weight: 600;
+        }
+        .error-msg {
+            background: #f8514922;
+            border: 1px solid #f85149;
+            border-radius: 8px;
+            padding: 1rem;
+            color: #f85149;
+            margin-top: 1rem;
+            font-size: 0.9rem;
+        }
+        .sheets-badge {
+            display: inline-block;
+            font-size: 0.7rem;
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            margin-left: 0.5rem;
+            vertical-align: middle;
+        }
+        .badge-ok { background: #238636; color: #fff; }
+        .badge-no { background: #da3633; color: #fff; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Lead Scorer</h1>
-        <p class="subtitle">Upload a CSV with company domains to score and enrich leads</p>
+        <p class="subtitle">Score and enrich leads by company domains</p>
 
-        <div class="card">
-            <form id="scoreForm" action="/score" method="post" enctype="multipart/form-data">
-                <label for="mode">Scoring Mode</label>
-                <select name="mode" id="mode">
+        <div class="tabs">
+            <div class="tab active" data-tab="csv">CSV Upload</div>
+            <div class="tab" data-tab="sheets">
+                Google Sheets
+                {% if sheets_available %}
+                <span class="sheets-badge badge-ok">connected</span>
+                {% else %}
+                <span class="sheets-badge badge-no">no creds</span>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- CSV Upload Tab -->
+        <div class="tab-content active" id="tab-csv">
+            <div class="card">
+                <form id="scoreForm" action="/score" method="post" enctype="multipart/form-data">
+                    <label for="mode-csv">Scoring Mode</label>
+                    <select name="mode" id="mode-csv">
+                        <option value="inxy_leads" selected>Inxy Leads (Crypto Payments)</option>
+                        <option value="founders_pl">Founders PL (Product Founders)</option>
+                    </select>
+
+                    <label>CSV File</label>
+                    <div class="hint">Must contain a column with "domain" in header (e.g. "Company Domain")</div>
+                    <div class="file-upload" id="dropzone">
+                        <input type="file" name="file" id="fileInput" accept=".csv" required>
+                        <div class="icon">&#128196;</div>
+                        <div class="text">Click to select or drag & drop CSV</div>
+                        <div class="filename" id="fileName"></div>
+                    </div>
+
+                    <button type="submit" id="submitBtn">Score Leads</button>
+                </form>
+
+                <div class="spinner" id="spinner">
+                    <p>Scoring leads...</p>
+                    <p style="margin-top: 0.5rem; font-size: 0.85rem;">
+                        This may take a few minutes depending on the number of domains
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Google Sheets Tab -->
+        <div class="tab-content" id="tab-sheets">
+            <div class="card">
+                <label for="mode-sheets">Scoring Mode</label>
+                <select id="mode-sheets">
                     <option value="inxy_leads" selected>Inxy Leads (Crypto Payments)</option>
                     <option value="founders_pl">Founders PL (Product Founders)</option>
                 </select>
 
-                <label>CSV File</label>
-                <div class="hint">Must contain a "Company Domain" column (e.g. example.com)</div>
-                <div class="file-upload" id="dropzone">
-                    <input type="file" name="file" id="fileInput" accept=".csv" required>
-                    <div class="icon">&#128196;</div>
-                    <div class="text">Click to select or drag & drop CSV</div>
-                    <div class="filename" id="fileName"></div>
+                <label for="sheet-url">Google Sheet URL or ID</label>
+                <div class="hint">
+                    Paste the full URL or spreadsheet ID. The sheet must be shared with the service account.
+                </div>
+                <input type="text" id="sheet-url" placeholder="https://docs.google.com/spreadsheets/d/...">
+
+                <button id="sheetBtn" {% if not sheets_available %}disabled{% endif %}>
+                    {% if sheets_available %}Score from Sheet{% else %}Google credentials not configured{% endif %}
+                </button>
+
+                <div id="sheet-error" class="error-msg" style="display:none;"></div>
+
+                <div class="progress-container" id="sheet-progress">
+                    <div class="progress-text" id="progress-text">Starting...</div>
+                    <div class="progress-bar-wrap">
+                        <div class="progress-bar" id="progress-bar"></div>
+                    </div>
+                    <div class="progress-log" id="progress-log"></div>
                 </div>
 
-                <button type="submit" id="submitBtn">Score Leads</button>
-            </form>
-
-            <div class="spinner" id="spinner">
-                <p>Scoring leads<span class="dots"></span></p>
-                <p style="margin-top: 0.5rem; font-size: 0.85rem;">
-                    This may take a few minutes depending on the number of domains
-                </p>
+                <div class="summary" id="sheet-summary">
+                    <div class="success-msg" id="summary-msg"></div>
+                    <div class="stats">
+                        <div class="stat cat-a">
+                            <div class="number" id="sum-a">0</div>
+                            <div class="label">Category A (8-10)</div>
+                        </div>
+                        <div class="stat cat-b">
+                            <div class="number" id="sum-b">0</div>
+                            <div class="label">Category B (6-7)</div>
+                        </div>
+                        <div class="stat cat-c">
+                            <div class="number" id="sum-c">0</div>
+                            <div class="label">Category C (4-5)</div>
+                        </div>
+                        <div class="stat cat-reject">
+                            <div class="number" id="sum-reject">0</div>
+                            <div class="label">Rejected (1-3)</div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
+        // ── Tabs ──
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+            });
+        });
+
+        // ── CSV Upload ──
         const dropzone = document.getElementById('dropzone');
         const fileInput = document.getElementById('fileInput');
         const fileName = document.getElementById('fileName');
@@ -189,11 +373,107 @@
                 fileName.textContent = fileInput.files[0].name;
             }
         });
-
         form.addEventListener('submit', () => {
             submitBtn.disabled = true;
             submitBtn.textContent = 'Processing...';
             spinner.classList.add('active');
+        });
+
+        // ── Google Sheets ──
+        const sheetBtn = document.getElementById('sheetBtn');
+        const sheetUrl = document.getElementById('sheet-url');
+        const sheetError = document.getElementById('sheet-error');
+        const progressContainer = document.getElementById('sheet-progress');
+        const progressText = document.getElementById('progress-text');
+        const progressBar = document.getElementById('progress-bar');
+        const progressLog = document.getElementById('progress-log');
+        const sheetSummary = document.getElementById('sheet-summary');
+
+        function catClass(cat) {
+            return 'cat-' + (cat || 'reject').toLowerCase().replace(' ', '');
+        }
+
+        sheetBtn.addEventListener('click', () => {
+            const url = sheetUrl.value.trim();
+            if (!url) {
+                sheetError.textContent = 'Please enter a Google Sheet URL or ID';
+                sheetError.style.display = 'block';
+                return;
+            }
+
+            // Reset UI
+            sheetError.style.display = 'none';
+            progressContainer.classList.add('active');
+            sheetSummary.classList.remove('active');
+            progressLog.innerHTML = '';
+            progressBar.style.width = '0%';
+            progressText.textContent = 'Connecting to Google Sheets...';
+            sheetBtn.disabled = true;
+            sheetBtn.textContent = 'Scoring...';
+
+            const mode = document.getElementById('mode-sheets').value;
+            const params = new URLSearchParams({ sheet_url: url, mode: mode });
+            const es = new EventSource('/score-sheet?' + params.toString());
+
+            es.addEventListener('start', (e) => {
+                const d = JSON.parse(e.data);
+                progressText.textContent = `Scoring ${d.total} leads from "${d.sheet_title}"...`;
+            });
+
+            es.addEventListener('progress', (e) => {
+                const d = JSON.parse(e.data);
+                const pct = Math.round((d.current / d.total) * 100);
+                progressBar.style.width = pct + '%';
+                progressText.textContent = `${d.current} / ${d.total} scored (${pct}%)`;
+
+                const entry = document.createElement('div');
+                entry.className = 'entry';
+                entry.innerHTML = `<span class="domain">${d.domain}</span> <span class="${catClass(d.category)}">${d.category} (${d.score})</span>`;
+                progressLog.appendChild(entry);
+                progressLog.scrollTop = progressLog.scrollHeight;
+            });
+
+            es.addEventListener('batch_written', (e) => {
+                // silently acknowledge
+            });
+
+            es.addEventListener('done', (e) => {
+                const d = JSON.parse(e.data);
+                es.close();
+                progressBar.style.width = '100%';
+                progressText.textContent = `Done! ${d.total} leads scored.`;
+
+                document.getElementById('sum-a').textContent = d.summary.A || 0;
+                document.getElementById('sum-b').textContent = d.summary.B || 0;
+                document.getElementById('sum-c').textContent = d.summary.C || 0;
+                document.getElementById('sum-reject').textContent = d.summary.Reject || 0;
+                document.getElementById('summary-msg').textContent =
+                    `Results written to your Google Sheet (${d.total} leads)`;
+                sheetSummary.classList.add('active');
+
+                sheetBtn.disabled = false;
+                sheetBtn.textContent = 'Score from Sheet';
+            });
+
+            es.addEventListener('error', (e) => {
+                let msg = 'Connection error';
+                try {
+                    const d = JSON.parse(e.data);
+                    msg = d.message || msg;
+                } catch {}
+                es.close();
+                sheetError.textContent = msg;
+                sheetError.style.display = 'block';
+                progressContainer.classList.remove('active');
+                sheetBtn.disabled = false;
+                sheetBtn.textContent = 'Score from Sheet';
+            });
+
+            es.onerror = () => {
+                es.close();
+                sheetBtn.disabled = false;
+                sheetBtn.textContent = 'Score from Sheet';
+            };
         });
     </script>
 </body>
