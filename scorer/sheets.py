@@ -177,17 +177,46 @@ async def score_sheet(
             col_letter = _col_to_letter(enriched_start_col + i)
             header_cells.append({"range": f"{col_letter}1", "values": [[h]]})
         worksheet.batch_update(header_cells)
+    else:
+        # Headers already exist — recalculate enriched_start_col from actual position
+        for i, h in enumerate(headers):
+            if h == "Score":
+                enriched_start_col = i - ENRICHED_HEADERS.index("Score")
+                break
+
+    # Detect already-scored rows by checking "Score" column
+    score_col_idx = enriched_start_col + ENRICHED_HEADERS.index("Score")
+    rows_to_score: list[int] = []  # indices into data_rows
+    skipped = 0
+
+    for i, row in enumerate(data_rows):
+        # Row already scored if Score cell has a value
+        if score_col_idx < len(row) and row[score_col_idx].strip():
+            skipped += 1
+        else:
+            rows_to_score.append(i)
+
+    to_score = len(rows_to_score)
 
     yield {
         "event": "start",
-        "total": total,
+        "total": to_score,
+        "skipped": skipped,
         "sheet_title": spreadsheet.title,
     }
+
+    if to_score == 0:
+        yield {
+            "event": "done",
+            "total": 0,
+            "skipped": skipped,
+            "summary": {"A": 0, "B": 0, "C": 0, "Reject": 0},
+        }
+        return
 
     # Score domains with concurrency control
     semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
     cache: dict = {}
-    results: list[tuple[int, dict]] = []  # (row_index, result)
 
     async def _score_one(row_idx: int, domain: str):
         async with semaphore:
@@ -200,13 +229,13 @@ async def score_sheet(
             result = await score_single(domain, mode_id, cache)
             return (row_idx, result)
 
-    # Process all rows, yield progress, write in batches
+    # Process only unscored rows, yield progress, write in batches
     pending_writes: list[tuple[int, list[str]]] = []
     summary = {"A": 0, "B": 0, "C": 0, "Reject": 0}
 
     tasks = [
-        _score_one(i, row[domain_col] if domain_col < len(row) else "")
-        for i, row in enumerate(data_rows)
+        _score_one(i, data_rows[i][domain_col] if domain_col < len(data_rows[i]) else "")
+        for i in rows_to_score
     ]
 
     for coro in asyncio.as_completed(tasks):
@@ -218,7 +247,7 @@ async def score_sheet(
         yield {
             "event": "progress",
             "current": sum(summary.values()),
-            "total": total,
+            "total": to_score,
             "domain": domain,
             "score": result.get("score", 0),
             "category": category,
@@ -240,7 +269,8 @@ async def score_sheet(
 
     yield {
         "event": "done",
-        "total": total,
+        "total": to_score,
+        "skipped": skipped,
         "summary": summary,
     }
 
