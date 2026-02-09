@@ -135,7 +135,8 @@ HARD_REJECT_KEYWORDS = [
 
 NON_BUSINESS_KEYWORDS = [
     "personal blog", "my blog", "nonprofit", "ngo",
-    "charity", "foundation", "government",
+    "registered charity", "charitable foundation",
+    "government agency", "government website",
 ]
 
 # ── Content / media site detection ──
