@@ -110,8 +110,11 @@ async def score_sheet_sse(
         return EventSourceResponse(_error())
 
     async def _stream():
-        async for event in score_sheet(sheet_url, mode, sheet_name):
-            yield {"event": event["event"], "data": json.dumps(event)}
+        try:
+            async for event in score_sheet(sheet_url, mode, sheet_name):
+                yield {"event": event["event"], "data": json.dumps(event)}
+        except Exception as e:
+            yield {"event": "error", "data": json.dumps({"event": "error", "message": f"Server error: {e}"})}
 
     return EventSourceResponse(_stream())
 
