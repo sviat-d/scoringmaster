@@ -113,6 +113,7 @@ async def score_sheet(
     sheet_url: str,
     mode_id: str,
     sheet_name: str = "",
+    llm_provider: str = "",
 ) -> AsyncGenerator[dict, None]:
     """Score all domains in a Google Sheet. Yields progress events.
 
@@ -120,6 +121,7 @@ async def score_sheet(
         sheet_url: Google Sheet URL or spreadsheet ID.
         mode_id: Scoring mode (inxy_leads or founders_pl).
         sheet_name: Worksheet tab name. Empty string = first sheet.
+        llm_provider: LLM provider to use ("anthropic", "gemini", etc).
 
     Events:
         {"event": "start", "total": N, "sheet_title": "..."}
@@ -263,7 +265,7 @@ async def score_sheet(
                     "category": "Reject",
                     "reason_short": "No domain provided",
                 })
-            result = await score_single(domain, mode_id, cache)
+            result = await score_single(domain, mode_id, cache, llm_provider=llm_provider)
             return (row_idx, result)
 
     # Process only unscored rows, yield progress, write in batches

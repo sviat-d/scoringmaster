@@ -1,8 +1,9 @@
 """LLM-based business classification — primary classification method.
 
-Supports two providers:
-- Anthropic (Claude) — preferred, set ANTHROPIC_API_KEY
-- OpenAI (GPT) — fallback, set OPENAI_API_KEY
+Supports three providers:
+- Anthropic (Claude Sonnet) — quality, set ANTHROPIC_API_KEY
+- OpenAI (GPT) — alternative, set OPENAI_API_KEY
+- Google Gemini (Flash) — free tier, set GEMINI_API_KEY
 """
 
 import os
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 _anthropic_client = None
 _openai_client = None
+_gemini_model = None
 
 
 def _can_import(module_name: str) -> bool:
@@ -25,7 +27,7 @@ def _can_import(module_name: str) -> bool:
 
 
 def _get_provider() -> str:
-    """Determine which LLM provider to use (checks both env var AND SDK)."""
+    """Determine default LLM provider (quality-first: Anthropic > OpenAI > Gemini)."""
     if os.environ.get("ANTHROPIC_API_KEY"):
         if _can_import("anthropic"):
             return "anthropic"
@@ -34,7 +36,23 @@ def _get_provider() -> str:
         if _can_import("openai"):
             return "openai"
         logger.warning("OPENAI_API_KEY is set but 'openai' package is not installed. Run: pip install openai")
+    if os.environ.get("GEMINI_API_KEY"):
+        if _can_import("google.generativeai"):
+            return "gemini"
+        logger.warning("GEMINI_API_KEY is set but 'google-generativeai' package is not installed. Run: pip install google-generativeai")
     return ""
+
+
+def get_available_providers() -> list[dict]:
+    """Return list of available LLM providers for UI display."""
+    providers = []
+    if os.environ.get("GEMINI_API_KEY") and _can_import("google.generativeai"):
+        providers.append({"id": "gemini", "name": "Gemini Flash (free)"})
+    if os.environ.get("ANTHROPIC_API_KEY") and _can_import("anthropic"):
+        providers.append({"id": "anthropic", "name": "Claude Sonnet (quality)"})
+    if os.environ.get("OPENAI_API_KEY") and _can_import("openai"):
+        providers.append({"id": "openai", "name": "GPT-4o Mini"})
+    return providers
 
 
 def _get_anthropic_client():
@@ -65,6 +83,25 @@ def _get_openai_client():
             logger.info("openai package not installed")
             return None
     return _openai_client
+
+
+def _get_gemini_model():
+    global _gemini_model
+    if _gemini_model is None:
+        try:
+            import google.generativeai as genai
+            api_key = os.environ.get("GEMINI_API_KEY")
+            if not api_key:
+                return None
+            genai.configure(api_key=api_key)
+            _gemini_model = genai.GenerativeModel(
+                "gemini-2.5-flash",
+                system_instruction=CLASSIFY_SYSTEM_PROMPT,
+            )
+        except ImportError:
+            logger.info("google-generativeai package not installed")
+            return None
+    return _gemini_model
 
 
 def is_available() -> bool:
@@ -124,13 +161,17 @@ INDUSTRY_CODES (use exactly one):
 - "unknown" — Cannot determine from available text"""
 
 
-async def classify_business(domain: str, text: str, mode_id: str) -> dict | None:
+async def classify_business(domain: str, text: str, mode_id: str, provider: str = "") -> dict | None:
     """Classify what business a website represents using LLM.
+
+    Args:
+        provider: explicit provider ("anthropic", "openai", "gemini") or "" for auto.
 
     Returns dict with: primary_business, industry, business_type,
     is_content_site, confidence. Or None on failure.
     """
-    provider = _get_provider()
+    if not provider:
+        provider = _get_provider()
     if not provider:
         logger.debug(f"LLM classification skipped for {domain}: no provider configured")
         return None
@@ -163,6 +204,8 @@ Classify this company's business. Return JSON only."""
     try:
         if provider == "anthropic":
             content = await _call_anthropic(user_prompt)
+        elif provider == "gemini":
+            content = await _call_gemini(user_prompt)
         else:
             content = await _call_openai(user_prompt)
 
@@ -230,6 +273,26 @@ async def _call_openai(user_prompt: str) -> str | None:
     )
 
     return response.choices[0].message.content.strip()
+
+
+async def _call_gemini(user_prompt: str) -> str | None:
+    """Call Google Gemini API."""
+    import google.generativeai as genai
+
+    model = _get_gemini_model()
+    if model is None:
+        return None
+
+    response = await model.generate_content_async(
+        contents=user_prompt,
+        generation_config=genai.GenerationConfig(
+            temperature=0.1,
+            max_output_tokens=300,
+            response_mime_type="application/json",
+        ),
+    )
+
+    return response.text.strip()
 
 
 # ── Industry code mapping to our scoring categories ──
