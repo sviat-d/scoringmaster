@@ -187,7 +187,7 @@ async def _call_anthropic(user_prompt: str) -> str | None:
         return None
 
     response = await client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model="claude-sonnet-4-5-20250929",
         max_tokens=300,
         system=CLASSIFY_SYSTEM_PROMPT,
         messages=[
