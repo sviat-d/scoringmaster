@@ -1,4 +1,9 @@
-"""LLM-based business classification — primary classification method."""
+"""LLM-based business classification — primary classification method.
+
+Supports two providers:
+- Anthropic (Claude) — preferred, set ANTHROPIC_API_KEY
+- OpenAI (GPT) — fallback, set OPENAI_API_KEY
+"""
 
 import os
 import json
@@ -6,26 +11,51 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-_client = None
+_anthropic_client = None
+_openai_client = None
 
 
-def _get_client():
-    global _client
-    if _client is None:
+def _get_provider() -> str:
+    """Determine which LLM provider to use."""
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "anthropic"
+    if os.environ.get("OPENAI_API_KEY"):
+        return "openai"
+    return ""
+
+
+def _get_anthropic_client():
+    global _anthropic_client
+    if _anthropic_client is None:
+        try:
+            from anthropic import AsyncAnthropic
+            api_key = os.environ.get("ANTHROPIC_API_KEY")
+            if not api_key:
+                return None
+            _anthropic_client = AsyncAnthropic(api_key=api_key)
+        except ImportError:
+            logger.info("anthropic package not installed")
+            return None
+    return _anthropic_client
+
+
+def _get_openai_client():
+    global _openai_client
+    if _openai_client is None:
         try:
             from openai import AsyncOpenAI
             api_key = os.environ.get("OPENAI_API_KEY")
             if not api_key:
                 return None
-            _client = AsyncOpenAI(api_key=api_key)
+            _openai_client = AsyncOpenAI(api_key=api_key)
         except ImportError:
-            logger.info("openai package not installed, LLM classification disabled")
+            logger.info("openai package not installed")
             return None
-    return _client
+    return _openai_client
 
 
 def is_available() -> bool:
-    return bool(os.environ.get("OPENAI_API_KEY"))
+    return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY"))
 
 
 # ── Business classification prompt ──
@@ -34,15 +64,20 @@ CLASSIFY_SYSTEM_PROMPT = """You are a business analyst. Your task is to determin
 
 CRITICAL RULES:
 1. Classify the company's OWN business, NOT topics they write about.
-   - A news portal writing about crypto is "Media / News", NOT "Crypto / Fintech"
-   - A marketing agency offering affiliate services to clients is "Agency / Consulting", NOT "Affiliate / CPA Marketing"
-   - A blog about gambling is "Media / News", NOT "iGaming & Betting"
+   - A news portal writing about crypto is "media", NOT "crypto_fintech"
+   - A marketing agency offering affiliate services to clients is "agency", NOT "affiliate_cpa"
+   - A blog about gambling is "media", NOT "igaming"
+   - An IT outsourcing company is "agency", NOT "saas"
+   - A company that MENTIONS crypto in passing is NOT "crypto_fintech" unless crypto is their core business
 
 2. Look for clear signals of the company's primary activity:
    - Do they SELL a product/service? What is it?
    - Do they have PRICING pages? What are they charging for?
    - Do they have a SIGN UP flow? For what?
    - Are they writing ARTICLES/NEWS? Then they're media.
+   - Do they list services for clients? Then they're agency/service.
+
+3. For non-English websites: translate and understand the content, don't just look for English keywords.
 
 Return ONLY valid JSON with these fields:
 {
@@ -54,8 +89,8 @@ Return ONLY valid JSON with these fields:
 }
 
 INDUSTRY_CODES (use exactly one):
-- "affiliate_cpa" — Affiliate networks, CPA networks, performance marketing platforms
-- "igaming" — Online casinos, betting platforms, sportsbooks
+- "affiliate_cpa" — Affiliate networks, CPA networks (NOT agencies that offer affiliate marketing services)
+- "igaming" — Online casinos, betting platforms, sportsbooks (NOT news about gambling)
 - "adult" — Adult content platforms, webcam sites
 - "hosting" — Web hosting, VPS, dedicated servers, data centers
 - "vpn_privacy" — VPN services, privacy tools
@@ -63,13 +98,13 @@ INDUSTRY_CODES (use exactly one):
 - "payroll_payouts" — Payroll services, mass payout platforms
 - "marketplace" — Multi-vendor marketplaces, e-commerce platforms with multiple sellers
 - "gaming_esports" — Gaming, esports, digital goods platforms
-- "crypto_fintech" — Crypto exchanges, wallets, DeFi, fintech, payment processors
+- "crypto_fintech" — Crypto exchanges, wallets, DeFi, fintech platforms, payment processors
 - "high_risk_ecommerce" — Supplements, nutra, CBD, forex tools
 - "psp_orchestration" — Payment orchestration, payment service providers, billing platforms
 - "affiliate_tracking" — Affiliate tracking software, conversion attribution
 - "saas" — SaaS products, cloud platforms (not fitting other categories)
 - "ecommerce" — Regular online stores, retail
-- "agency" — Marketing agencies, development agencies, consulting firms
+- "agency" — Marketing agencies, development agencies, consulting firms, IT outsourcing
 - "media" — News portals, blogs, content sites, magazines
 - "education" — Educational platforms, courses, training programs
 - "other" — Anything not fitting above categories
@@ -82,8 +117,8 @@ async def classify_business(domain: str, text: str, mode_id: str) -> dict | None
     Returns dict with: primary_business, industry, business_type,
     is_content_site, confidence. Or None on failure.
     """
-    client = _get_client()
-    if client is None:
+    provider = _get_provider()
+    if not provider:
         return None
 
     # Truncate to fit context while keeping enough signal
@@ -94,7 +129,8 @@ async def classify_business(domain: str, text: str, mode_id: str) -> dict | None
         mode_context = (
             "\nContext: We're evaluating leads for a crypto payment processor. "
             "We need to know the company's ACTUAL business to assess if they "
-            "could benefit from crypto payment processing."
+            "could benefit from crypto payment processing. "
+            "Be strict: only classify as crypto_fintech if crypto IS their core business."
         )
     elif mode_id == "founders_pl":
         mode_context = (
@@ -111,17 +147,13 @@ Website content:
 Classify this company's business. Return JSON only."""
 
     try:
-        response = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": CLASSIFY_SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.1,
-            max_tokens=300,
-        )
+        if provider == "anthropic":
+            content = await _call_anthropic(user_prompt)
+        else:
+            content = await _call_openai(user_prompt)
 
-        content = response.choices[0].message.content.strip()
+        if not content:
+            return None
 
         # Strip markdown fences if present
         if content.startswith("```"):
@@ -138,6 +170,7 @@ Classify this company's business. Return JSON only."""
             logger.warning(f"LLM missing fields for {domain}: {result.keys()}")
             return None
 
+        logger.info(f"LLM [{provider}] classified {domain}: {result.get('industry')} / {result.get('business_type')}")
         return result
     except json.JSONDecodeError as e:
         logger.warning(f"LLM returned invalid JSON for {domain}: {e}")
@@ -147,9 +180,46 @@ Classify this company's business. Return JSON only."""
         return None
 
 
+async def _call_anthropic(user_prompt: str) -> str | None:
+    """Call Anthropic Claude API."""
+    client = _get_anthropic_client()
+    if client is None:
+        return None
+
+    response = await client.messages.create(
+        model="claude-sonnet-4-5-20250929",
+        max_tokens=300,
+        system=CLASSIFY_SYSTEM_PROMPT,
+        messages=[
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.1,
+    )
+
+    return response.content[0].text.strip()
+
+
+async def _call_openai(user_prompt: str) -> str | None:
+    """Call OpenAI API."""
+    client = _get_openai_client()
+    if client is None:
+        return None
+
+    response = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": CLASSIFY_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.1,
+        max_tokens=300,
+    )
+
+    return response.choices[0].message.content.strip()
+
+
 # ── Industry code mapping to our scoring categories ──
 
-# Map LLM industry codes to the internal industry names used by scoring modes
 INDUSTRY_CODE_MAP = {
     "affiliate_cpa": "Affiliate / CPA Marketing",
     "igaming": "iGaming & Betting",
@@ -173,7 +243,6 @@ INDUSTRY_CODE_MAP = {
     "unknown": "Unknown",
 }
 
-# Industries where LLM classification means "not a real lead"
 NON_TARGET_INDUSTRIES = {"media", "education", "agency", "other", "unknown"}
 
 
