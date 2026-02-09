@@ -294,6 +294,12 @@
                 </div>
                 <input type="text" id="sheet-url" placeholder="https://docs.google.com/spreadsheets/d/...">
 
+                <label for="sheet-tab">Sheet Tab Name</label>
+                <div class="hint">
+                    Leave empty for the first tab, or type the exact tab name (e.g. "Cold Outreach")
+                </div>
+                <input type="text" id="sheet-tab" placeholder="(first tab)">
+
                 <button id="sheetBtn" {% if not sheets_available %}disabled{% endif %}>
                     {% if sheets_available %}Score from Sheet{% else %}Google credentials not configured{% endif %}
                 </button>
@@ -412,7 +418,8 @@
             sheetBtn.textContent = 'Scoring...';
 
             const mode = document.getElementById('mode-sheets').value;
-            const params = new URLSearchParams({ sheet_url: url, mode: mode });
+            const tabName = document.getElementById('sheet-tab').value.trim();
+            const params = new URLSearchParams({ sheet_url: url, mode: mode, sheet_name: tabName });
             const es = new EventSource('/score-sheet?' + params.toString());
 
             es.addEventListener('start', (e) => {

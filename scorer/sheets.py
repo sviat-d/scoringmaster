@@ -112,8 +112,14 @@ def _result_to_row(result: dict, mode_id: str) -> list[str]:
 async def score_sheet(
     sheet_url: str,
     mode_id: str,
+    sheet_name: str = "",
 ) -> AsyncGenerator[dict, None]:
     """Score all domains in a Google Sheet. Yields progress events.
+
+    Args:
+        sheet_url: Google Sheet URL or spreadsheet ID.
+        mode_id: Scoring mode (inxy_leads or founders_pl).
+        sheet_name: Worksheet tab name. Empty string = first sheet.
 
     Events:
         {"event": "start", "total": N, "sheet_title": "..."}
@@ -132,7 +138,19 @@ async def score_sheet(
 
     try:
         spreadsheet = gc.open_by_key(sheet_id)
-        worksheet = spreadsheet.sheet1
+        if sheet_name.strip():
+            try:
+                worksheet = spreadsheet.worksheet(sheet_name.strip())
+            except gspread.exceptions.WorksheetNotFound:
+                available = [ws.title for ws in spreadsheet.worksheets()]
+                yield {
+                    "event": "error",
+                    "message": f"Sheet tab '{sheet_name}' not found. "
+                    f"Available tabs: {', '.join(available)}",
+                }
+                return
+        else:
+            worksheet = spreadsheet.sheet1
     except gspread.exceptions.SpreadsheetNotFound:
         yield {
             "event": "error",
