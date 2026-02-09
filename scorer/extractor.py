@@ -15,10 +15,9 @@ def _count_keyword(text: str, keyword: str) -> int:
 # ─── Industry keyword groups ───
 INDUSTRY_KEYWORDS: dict[str, list[str]] = {
     "Affiliate / CPA Marketing": [
-        "affiliate network", "affiliate program", "affiliate marketing",
-        "cpa network", "cpa marketing", "performance marketing",
-        "revshare", "cost per action", "cost per lead",
-        "offer wall", "tracking link", "affiliate offer",
+        "affiliate network", "cpa network", "cpa marketing",
+        "revshare", "offer wall", "affiliate offer",
+        "smartlink", "direct advertiser", "media buying",
     ],
     "iGaming & Betting": [
         "casino", "betting", "sportsbook", "odds", "igaming", "gambling",
