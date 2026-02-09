@@ -1,4 +1,4 @@
-"""Optional LLM-based classification using OpenAI API."""
+"""LLM-based business classification — primary classification method."""
 
 import os
 import json
@@ -28,82 +28,97 @@ def is_available() -> bool:
     return bool(os.environ.get("OPENAI_API_KEY"))
 
 
-SYSTEM_PROMPT = """You are a B2B lead classification expert. Analyze the website text and return a JSON object with these fields:
+# ── Business classification prompt ──
 
+CLASSIFY_SYSTEM_PROMPT = """You are a business analyst. Your task is to determine what a company DOES based on its website text.
+
+CRITICAL RULES:
+1. Classify the company's OWN business, NOT topics they write about.
+   - A news portal writing about crypto is "Media / News", NOT "Crypto / Fintech"
+   - A marketing agency offering affiliate services to clients is "Agency / Consulting", NOT "Affiliate / CPA Marketing"
+   - A blog about gambling is "Media / News", NOT "iGaming & Betting"
+
+2. Look for clear signals of the company's primary activity:
+   - Do they SELL a product/service? What is it?
+   - Do they have PRICING pages? What are they charging for?
+   - Do they have a SIGN UP flow? For what?
+   - Are they writing ARTICLES/NEWS? Then they're media.
+
+Return ONLY valid JSON with these fields:
 {
-  "industry": "detected industry name",
-  "business_model": "product|service|hybrid|unknown",
-  "crypto_adoption_likelihood": "high|medium|low",
-  "risk_flags": ["list", "of", "flags"],
-  "headcount_estimate": "1-5|5-10|10+|unknown",
-  "score_1_to_10": 7,
-  "confidence": "low|med|high",
-  "reason_short": "one sentence summary",
-  "reasons_bullets": ["reason 1", "reason 2"]
+  "primary_business": "1-2 sentence description of what this company does",
+  "industry": "one of the INDUSTRY_CODES below",
+  "business_type": "product | service | marketplace | media | agency | other",
+  "is_content_site": true/false,
+  "confidence": "high | medium | low"
 }
 
-Industries with historically HIGH crypto adoption (boost score even if crypto not mentioned):
-- Affiliate networks / CPA marketing
-- iGaming & betting
-- Adult / webcam platforms
-- Hosting providers (VPS, dedicated, offshore)
-- VPN / privacy tools
-- Freelance & contractor platforms
-- Global payroll & payouts
-- Marketplaces with international sellers
-- Gaming, esports, digital goods
-- Crypto-adjacent fintech
+INDUSTRY_CODES (use exactly one):
+- "affiliate_cpa" — Affiliate networks, CPA networks, performance marketing platforms
+- "igaming" — Online casinos, betting platforms, sportsbooks
+- "adult" — Adult content platforms, webcam sites
+- "hosting" — Web hosting, VPS, dedicated servers, data centers
+- "vpn_privacy" — VPN services, privacy tools
+- "freelance_contractor" — Freelance marketplaces, contractor platforms
+- "payroll_payouts" — Payroll services, mass payout platforms
+- "marketplace" — Multi-vendor marketplaces, e-commerce platforms with multiple sellers
+- "gaming_esports" — Gaming, esports, digital goods platforms
+- "crypto_fintech" — Crypto exchanges, wallets, DeFi, fintech, payment processors
+- "high_risk_ecommerce" — Supplements, nutra, CBD, forex tools
+- "psp_orchestration" — Payment orchestration, payment service providers, billing platforms
+- "affiliate_tracking" — Affiliate tracking software, conversion attribution
+- "saas" — SaaS products, cloud platforms (not fitting other categories)
+- "ecommerce" — Regular online stores, retail
+- "agency" — Marketing agencies, development agencies, consulting firms
+- "media" — News portals, blogs, content sites, magazines
+- "education" — Educational platforms, courses, training programs
+- "other" — Anything not fitting above categories
+- "unknown" — Cannot determine from available text"""
 
-Score 8-10: Strong industry + operational signals
-Score 6-7: Medium signals or infrastructure play
-Score 4-5: Ambiguous, needs manual review
-Score 1-3: Irrelevant or reject
 
-Return ONLY valid JSON, no markdown fences."""
+async def classify_business(domain: str, text: str, mode_id: str) -> dict | None:
+    """Classify what business a website represents using LLM.
 
-
-async def classify_with_llm(domain: str, text: str, mode: str) -> dict | None:
-    """Classify a lead using LLM. Returns structured dict or None on failure."""
+    Returns dict with: primary_business, industry, business_type,
+    is_content_site, confidence. Or None on failure.
+    """
     client = _get_client()
     if client is None:
         return None
 
-    # Truncate text to fit context
-    truncated = text[:8000]
+    # Truncate to fit context while keeping enough signal
+    truncated = text[:6000]
 
     mode_context = ""
-    if mode == "inxy_leads":
+    if mode_id == "inxy_leads":
         mode_context = (
-            "Context: Scoring leads for Inxy, a crypto payment processor. "
-            "Focus on companies that could benefit from crypto payments, "
-            "mass payouts, or crypto-fiat conversions."
+            "\nContext: We're evaluating leads for a crypto payment processor. "
+            "We need to know the company's ACTUAL business to assess if they "
+            "could benefit from crypto payment processing."
         )
-    elif mode == "founders_pl":
+    elif mode_id == "founders_pl":
         mode_context = (
-            "Context: Identifying product IT founders. "
-            "Reject agencies/outsourcing/consulting. "
-            "Accept SaaS, platforms, hardware, product studios. "
-            "CEO acceptable only if headcount >= 10."
+            "\nContext: We're looking for product IT founders. "
+            "We need to know if this is a product company vs agency/service."
         )
 
     user_prompt = f"""Domain: {domain}
-Mode: {mode}
 {mode_context}
 
 Website content:
 {truncated}
 
-Classify this lead and return JSON."""
+Classify this company's business. Return JSON only."""
 
     try:
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": CLASSIFY_SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.1,
-            max_tokens=500,
+            max_tokens=300,
         )
 
         content = response.choices[0].message.content.strip()
@@ -115,7 +130,15 @@ Classify this lead and return JSON."""
                 content = content[:-3]
             content = content.strip()
 
-        return json.loads(content)
+        result = json.loads(content)
+
+        # Validate required fields
+        required = {"primary_business", "industry", "business_type"}
+        if not required.issubset(result.keys()):
+            logger.warning(f"LLM missing fields for {domain}: {result.keys()}")
+            return None
+
+        return result
     except json.JSONDecodeError as e:
         logger.warning(f"LLM returned invalid JSON for {domain}: {e}")
         return None
@@ -124,55 +147,43 @@ Classify this lead and return JSON."""
         return None
 
 
-def merge_llm_with_rules(rules_result: dict, llm_result: dict | None) -> dict:
-    """Merge LLM output with rules-based result. Rules always override on hard decisions."""
-    if llm_result is None:
-        return rules_result
+# ── Industry code mapping to our scoring categories ──
 
-    merged = dict(rules_result)
+# Map LLM industry codes to the internal industry names used by scoring modes
+INDUSTRY_CODE_MAP = {
+    "affiliate_cpa": "Affiliate / CPA Marketing",
+    "igaming": "iGaming & Betting",
+    "adult": "Adult / Webcam",
+    "hosting": "Hosting / Infrastructure",
+    "vpn_privacy": "VPN / Privacy / Security",
+    "freelance_contractor": "Freelance / Contractor Platform",
+    "payroll_payouts": "Global Payroll / Payouts",
+    "marketplace": "Marketplace",
+    "gaming_esports": "Gaming / Esports / Digital Goods",
+    "crypto_fintech": "Crypto / Fintech",
+    "high_risk_ecommerce": "High-Risk Ecommerce",
+    "psp_orchestration": "Payment Orchestration / PSP",
+    "affiliate_tracking": "Affiliate Tracking Software",
+    "saas": "SaaS (General)",
+    "ecommerce": "Ecommerce",
+    "agency": "Agency / Consulting",
+    "media": "Media / News",
+    "education": "Education",
+    "other": "Other",
+    "unknown": "Unknown",
+}
 
-    # LLM can refine these soft fields
-    if rules_result.get("industry") == "Unknown" and llm_result.get("industry"):
-        merged["industry"] = llm_result["industry"]
+# Industries where LLM classification means "not a real lead"
+NON_TARGET_INDUSTRIES = {"media", "education", "agency", "other", "unknown"}
 
-    if rules_result.get("business_model") == "Unknown" and llm_result.get("business_model"):
-        merged["business_model"] = llm_result["business_model"]
 
-    if rules_result.get("headcount_estimate") == "Unknown" and llm_result.get("headcount_estimate"):
-        merged["headcount_estimate"] = llm_result["headcount_estimate"]
+def map_industry_code(code: str) -> str:
+    """Map LLM industry code to display name."""
+    return INDUSTRY_CODE_MAP.get(code, code)
 
-    # LLM can enrich reasons
-    llm_reasons = llm_result.get("reasons_bullets", [])
-    if llm_reasons:
-        existing = set(merged.get("reasons_bullets", []))
-        for r in llm_reasons:
-            if r not in existing:
-                merged.setdefault("reasons_bullets", []).append(r)
 
-    # LLM can suggest opener if rules didn't
-    if not merged.get("opener") and llm_result.get("reason_short"):
-        pass  # Don't auto-generate opener from LLM reason
-
-    # Rules ALWAYS override score and category for hard rejects
-    if rules_result.get("score", 0) <= 2:
-        return merged  # Keep rules score for rejects
-
-    # For non-rejects, average scores with rules having 2x weight
-    llm_score = llm_result.get("score_1_to_10")
-    if llm_score and isinstance(llm_score, (int, float)):
-        rules_score = rules_result.get("score", 5)
-        merged["score"] = round((rules_score * 2 + llm_score) / 3)
-        merged["score"] = max(1, min(10, merged["score"]))
-
-        # Recalculate category
-        s = merged["score"]
-        if s >= 8:
-            merged["category"] = "A"
-        elif s >= 6:
-            merged["category"] = "B"
-        elif s >= 4:
-            merged["category"] = "C"
-        else:
-            merged["category"] = "Reject"
-
-    return merged
+def is_non_target(classification: dict) -> bool:
+    """Check if LLM classification indicates a non-target business."""
+    industry = classification.get("industry", "unknown")
+    is_content = classification.get("is_content_site", False)
+    return industry in NON_TARGET_INDUSTRIES or is_content

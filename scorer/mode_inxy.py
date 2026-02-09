@@ -2,6 +2,7 @@
 
 from scorer.extractor import SiteSignals
 from scorer.modes import BaseMode, ScoringResult, register_mode
+from scorer import llm
 
 # Industries with historically high crypto adoption
 HIGH_CRYPTO_INDUSTRIES = {
@@ -32,12 +33,21 @@ INFRA_SERVING_CRYPTO = {
     "SaaS (General)",
 }
 
+# LLM industry codes mapped to the same categories
+HIGH_CRYPTO_CODES = {
+    "affiliate_cpa", "igaming", "adult", "hosting", "vpn_privacy",
+    "freelance_contractor", "payroll_payouts", "gaming_esports",
+    "crypto_fintech", "high_risk_ecommerce",
+}
+SECONDARY_CODES = {"psp_orchestration", "affiliate_tracking", "marketplace"}
+INFRA_CODES = {"hosting", "psp_orchestration", "affiliate_tracking", "saas"}
+
 
 class InxyLeadsMode(BaseMode):
     mode_id = "inxy_leads"
     mode_name = "Inxy Leads (Crypto Payments)"
 
-    def score(self, signals: SiteSignals, domain: str) -> ScoringResult:
+    def score(self, signals: SiteSignals, domain: str, classification: dict | None = None) -> ScoringResult:
         # Hard reject
         if signals.hard_reject:
             return ScoringResult(
@@ -57,7 +67,7 @@ class InxyLeadsMode(BaseMode):
                 confidence="Med",
             )
 
-        if not signals.industries and signals.raw_text_length < 200:
+        if not signals.industries and signals.raw_text_length < 200 and not classification:
             return ScoringResult(
                 score=1,
                 reason_short="Could not extract meaningful content from website",
@@ -65,12 +75,173 @@ class InxyLeadsMode(BaseMode):
                 confidence="Low",
             )
 
+        # ── Determine industry: LLM primary, keywords fallback ──
+        if classification:
+            return self._score_with_classification(classification, signals, domain)
+        else:
+            return self._score_keywords_only(signals, domain)
+
+    def _score_with_classification(
+        self, classification: dict, signals: SiteSignals, domain: str
+    ) -> ScoringResult:
+        """Score using LLM classification (primary) + keyword signals (secondary)."""
+        llm_industry_code = classification.get("industry", "unknown")
+        llm_industry_name = llm.map_industry_code(llm_industry_code)
+        business_type = classification.get("business_type", "unknown")
+        is_content_site = classification.get("is_content_site", False)
+        llm_confidence = classification.get("confidence", "medium")
+        primary_business = classification.get("primary_business", "")
+
+        reasons: list[str] = []
+        score = 3  # baseline
+        crypto_likelihood = "Low"
+        signal_strength = 0
+
+        # ── Content site / non-target early exit ──
+        if is_content_site or llm_industry_code in llm.NON_TARGET_INDUSTRIES:
+            reasons.append(f"LLM: {primary_business}")
+            reasons.append(f"Business type: {business_type}")
+
+            # Still check if they have crypto operational signals
+            if signals.has_crypto_signals:
+                reasons.append("Note: crypto payment keywords found on site")
+                return ScoringResult(
+                    industry=llm_industry_name,
+                    business_model=business_type,
+                    headcount_estimate=signals.headcount_estimate,
+                    crypto_adoption_likelihood="Low",
+                    risk_flags=signals.risk_flags,
+                    score=3,
+                    confidence="Med",
+                    reason_short=f"Non-target business ({llm_industry_name}) but mentions crypto",
+                    reasons_bullets=reasons,
+                    next_action="Manual review — non-target but crypto mentions",
+                )
+
+            return ScoringResult(
+                industry=llm_industry_name,
+                business_model=business_type,
+                headcount_estimate=signals.headcount_estimate,
+                score=1,
+                confidence="High" if llm_confidence == "high" else "Med",
+                reason_short=f"Non-target: {llm_industry_name}",
+                reasons_bullets=reasons,
+                next_action="Skip or deprioritize",
+            )
+
+        # ── Industry scoring based on LLM classification ──
+        if llm_industry_code in HIGH_CRYPTO_CODES:
+            score += 4
+            crypto_likelihood = "High"
+            signal_strength += 2
+            reasons.append(f"LLM: '{llm_industry_name}' — high crypto adoption industry")
+        elif llm_industry_code in SECONDARY_CODES:
+            score += 3
+            crypto_likelihood = "Medium"
+            signal_strength += 1
+            reasons.append(f"LLM: '{llm_industry_name}' — serves crypto-adjacent clients")
+        elif llm_industry_code in INFRA_CODES:
+            score += 2
+            crypto_likelihood = "Medium"
+            signal_strength += 1
+            reasons.append(f"LLM: infrastructure/SaaS serving high-crypto verticals")
+        elif llm_industry_code == "ecommerce":
+            score += 1
+            reasons.append(f"LLM: regular e-commerce ({primary_business})")
+        else:
+            reasons.append(f"LLM: '{llm_industry_name}' ({primary_business})")
+
+        # ── Operational signal boosts (from keywords) ──
+        if signals.has_crypto_signals:
+            score += 2
+            crypto_likelihood = "High"
+            signal_strength += 2
+            reasons.append("Explicit crypto/stablecoin payment signals found on site")
+
+        if signals.has_mass_payment_signals:
+            score += 1
+            signal_strength += 1
+            if crypto_likelihood != "High":
+                crypto_likelihood = "Medium"
+            reasons.append("Mass payment / payout signals found")
+
+        if signals.has_global_payment_signals:
+            score += 1
+            signal_strength += 1
+            if crypto_likelihood == "Low":
+                crypto_likelihood = "Medium"
+            reasons.append("Cross-border / multi-currency signals found")
+
+        if signals.operational_signals.get("api_integrations", 0) > 0:
+            score += 1
+            signal_strength += 1
+            reasons.append("API / integration-ready platform")
+
+        if signals.operational_signals.get("partners", 0) > 0:
+            score += 1
+            signal_strength += 1
+            reasons.append("Partner / reseller program detected")
+
+        # ── Confidence calculation ──
+        has_enough_text = signals.raw_text_length >= 2000
+        has_some_text = signals.raw_text_length >= 1000
+
+        # LLM classification boosts confidence
+        if llm_confidence == "high" and signal_strength >= 1:
+            confidence = "High"
+        elif llm_confidence == "high" or (signal_strength >= 2 and has_some_text):
+            confidence = "High"
+        elif signal_strength >= 1 and has_some_text:
+            confidence = "Med"
+        elif has_some_text:
+            confidence = "Med"
+        else:
+            confidence = "Low"
+            reasons.append("Limited website content available")
+
+        # Risk flags lower confidence by one step
+        if signals.risk_flags:
+            if confidence == "High":
+                confidence = "Med"
+            elif confidence == "Med":
+                confidence = "Low"
+            reasons.append(f"Risk flags: {', '.join(signals.risk_flags)}")
+
+        # Cap score
+        score = max(1, min(10, score))
+
+        # Generate opener
+        business_model = business_type if business_type != "other" else _infer_business_model(signals)
+        opener = _generate_opener(llm_industry_name, signals, domain)
+        next_action = _suggest_next_action(score, signals)
+
+        return ScoringResult(
+            industry=llm_industry_name,
+            business_model=business_model,
+            headcount_estimate=signals.headcount_estimate,
+            crypto_adoption_likelihood=crypto_likelihood,
+            risk_flags=signals.risk_flags,
+            score=score,
+            confidence=confidence,
+            reason_short=_summarize(llm_industry_name, score, crypto_likelihood),
+            reasons_bullets=reasons,
+            opener=opener,
+            next_action=next_action,
+        )
+
+    def _score_keywords_only(self, signals: SiteSignals, domain: str) -> ScoringResult:
+        """Fallback: score using only keyword signals (when LLM unavailable)."""
         top = signals.top_industry
         reasons: list[str] = []
         score = 3  # baseline
         crypto_likelihood = "Low"
         business_model = _infer_business_model(signals)
-        signal_strength = 0  # track how many corroborating signals we have
+        signal_strength = 0
+
+        # Content site detection lowers score
+        if signals.is_content_site:
+            reasons.append("Detected as content/news site (keyword pattern)")
+            score -= 1
 
         # ── Industry scoring ──
         if top in HIGH_CRYPTO_INDUSTRIES:
@@ -146,7 +317,13 @@ class InxyLeadsMode(BaseMode):
             confidence = "Low"
             reasons.append("Limited website content available")
 
-        # Risk flags lower confidence by one step, not score
+        # Note: no LLM available
+        if confidence != "Low":
+            reasons.append("Note: LLM classification unavailable, using keyword-only scoring")
+            if confidence == "High":
+                confidence = "Med"  # downgrade without LLM confirmation
+
+        # Risk flags lower confidence by one step
         if signals.risk_flags:
             if confidence == "High":
                 confidence = "Med"
