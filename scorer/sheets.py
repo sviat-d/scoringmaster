@@ -160,6 +160,9 @@ async def score_sheet(
     except gspread.exceptions.APIError as e:
         yield {"event": "error", "message": f"Google API error: {e}"}
         return
+    except Exception as e:
+        yield {"event": "error", "message": f"Failed to open spreadsheet: {e}"}
+        return
 
     # Read all data
     all_values = worksheet.get_all_values()
