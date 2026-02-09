@@ -55,9 +55,9 @@ INDUSTRY_KEYWORDS: dict[str, list[str]] = {
     ],
     "Crypto / Fintech": [
         "crypto", "cryptocurrency", "bitcoin", "ethereum", "stablecoin",
-        "usdt", "usdc", "crypto wallet", "defi", "blockchain", "web3",
-        "payment service provider", "fintech", "neobank",
-        "crypto exchange", "token", "smart contract",
+        "usdt", "usdc", "crypto wallet", "defi", "blockchain",
+        "payment service provider", "fintech platform", "neobank",
+        "crypto exchange", "smart contract", "web3 platform",
     ],
     "High-Risk Ecommerce": [
         "nutra", "supplements", "forex tool", "cbd", "hemp",
