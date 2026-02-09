@@ -9,17 +9,18 @@ logger = logging.getLogger(__name__)
 # ─── Industry keyword groups ───
 INDUSTRY_KEYWORDS: dict[str, list[str]] = {
     "Affiliate / CPA Marketing": [
-        "affiliate", "cpa network", "cpa marketing", "performance marketing",
-        "revshare", "cost per action", "cost per lead", "affiliate program",
-        "publisher", "advertiser", "offer wall", "tracking link",
+        "affiliate network", "affiliate program", "affiliate marketing",
+        "cpa network", "cpa marketing", "performance marketing",
+        "revshare", "cost per action", "cost per lead",
+        "offer wall", "tracking link", "affiliate offer",
     ],
     "iGaming & Betting": [
         "casino", "betting", "sportsbook", "odds", "igaming", "gambling",
         "poker", "slots", "wagering", "bookmaker", "sports betting",
     ],
     "Adult / Webcam": [
-        "adult", "webcam", "cam model", "content creator", "xxx",
-        "live cam", "adult entertainment", "nsfw",
+        "adult content", "adult entertainment", "webcam model", "cam model",
+        "xxx", "live cam", "nsfw", "adult site", "cam site",
     ],
     "Hosting / Infrastructure": [
         "hosting", "vps", "dedicated server", "cloud server", "colocation",
@@ -27,8 +28,9 @@ INDUSTRY_KEYWORDS: dict[str, list[str]] = {
         "managed hosting", "reseller hosting", "web hosting",
     ],
     "VPN / Privacy / Security": [
-        "vpn", "no-logs", "privacy", "anonymous", "encrypted",
-        "proxy", "secure browsing", "wireguard", "openvpn",
+        "vpn service", "vpn provider", "no-logs policy", "anonymous browsing",
+        "end-to-end encrypted", "proxy service", "secure browsing",
+        "wireguard", "openvpn", "vpn app", "vpn server",
     ],
     "Freelance / Contractor Platform": [
         "freelance", "freelancer", "contractor", "gig economy",
@@ -68,7 +70,8 @@ INDUSTRY_KEYWORDS: dict[str, list[str]] = {
     ],
     "SaaS (General)": [
         "saas", "software as a service", "cloud platform",
-        "platform", "dashboard", "api",
+        "our platform", "saas platform", "saas product",
+        "free trial", "sign up free", "get started",
     ],
 }
 
@@ -83,8 +86,9 @@ OPERATIONAL_KEYWORDS: dict[str, list[str]] = {
         "multi-currency", "worldwide payment",
     ],
     "api_integrations": [
-        "api", "integration", "webhook", "sdk", "developer",
-        "rest api", "graphql",
+        "our api", "api documentation", "api reference", "webhook",
+        "sdk", "developer portal", "rest api", "graphql",
+        "api key", "api endpoint",
     ],
     "crypto_payments": [
         "crypto payment", "bitcoin payment", "accept crypto",
