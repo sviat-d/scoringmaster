@@ -12,8 +12,23 @@ from sse_starlette.sse import EventSourceResponse
 
 from scorer.pipeline import score_leads
 from scorer.sheets import score_sheet, is_sheets_available
+from scorer import llm
+
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Lead Scorer", version="1.0.0")
+
+
+@app.on_event("startup")
+async def _startup_check():
+    provider = llm._get_provider()
+    available = llm.is_available()
+    has_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    logger.info(f"LLM status: available={available}, provider={provider}, has_anthropic_key={has_key}")
+    if not available:
+        logger.warning("No LLM provider configured! Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
