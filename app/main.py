@@ -95,6 +95,7 @@ async def download(job_id: str):
 async def score_sheet_sse(
     sheet_url: str = Query(...),
     mode: str = Query("inxy_leads"),
+    sheet_name: str = Query(""),
 ):
     """SSE endpoint: scores domains from a Google Sheet and streams progress."""
     if mode not in ("inxy_leads", "founders_pl"):
@@ -109,7 +110,7 @@ async def score_sheet_sse(
         return EventSourceResponse(_error())
 
     async def _stream():
-        async for event in score_sheet(sheet_url, mode):
+        async for event in score_sheet(sheet_url, mode, sheet_name):
             yield {"event": event["event"], "data": json.dumps(event)}
 
     return EventSourceResponse(_stream())
