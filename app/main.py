@@ -10,6 +10,9 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sse_starlette.sse import EventSourceResponse
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from scorer.pipeline import score_leads
 from scorer.sheets import score_sheet, is_sheets_available
 from scorer import llm
@@ -25,10 +28,27 @@ app = FastAPI(title="Lead Scorer", version="1.0.0")
 async def _startup_check():
     provider = llm._get_provider()
     available = llm.is_available()
-    has_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    logger.info(f"LLM status: available={available}, provider={provider}, has_anthropic_key={has_key}")
+    has_anthropic_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    has_openai_key = bool(os.environ.get("OPENAI_API_KEY"))
+    has_anthropic_pkg = llm._can_import("anthropic")
+    has_openai_pkg = llm._can_import("openai")
+    logger.info(
+        f"LLM status: available={available}, provider={provider}, "
+        f"anthropic_key={has_anthropic_key}, anthropic_pkg={has_anthropic_pkg}, "
+        f"openai_key={has_openai_key}, openai_pkg={has_openai_pkg}"
+    )
     if not available:
-        logger.warning("No LLM provider configured! Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
+        reasons = []
+        if not has_anthropic_key and not has_openai_key:
+            reasons.append("No API keys set. Set ANTHROPIC_API_KEY or OPENAI_API_KEY (env var or .env file).")
+        if has_anthropic_key and not has_anthropic_pkg:
+            reasons.append("ANTHROPIC_API_KEY is set but 'anthropic' package is missing. Run: pip install anthropic")
+        if has_openai_key and not has_openai_pkg:
+            reasons.append("OPENAI_API_KEY is set but 'openai' package is missing. Run: pip install openai")
+        for r in reasons:
+            logger.warning(r)
+        if not reasons:
+            logger.warning("No LLM provider configured! Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
