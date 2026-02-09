@@ -188,10 +188,26 @@ async def score_sheet(
         return
 
     # Add enriched headers if not already present
-    enriched_start_col = len(headers)
-    existing_enriched = set(headers[enriched_start_col:]) if enriched_start_col < len(headers) else set()
+    # Find last non-empty header column (don't count empty grid columns)
+    last_filled_col = 0
+    for i, h in enumerate(headers):
+        if h.strip():
+            last_filled_col = i + 1
 
-    if not existing_enriched.issuperset(set(ENRICHED_HEADERS)):
+    # Check if enriched headers already exist
+    enriched_header_set = set(ENRICHED_HEADERS)
+    existing_headers_set = set(h.strip() for h in headers if h.strip())
+
+    if enriched_header_set.issubset(existing_headers_set):
+        # Headers already exist — find where they start
+        for i, h in enumerate(headers):
+            if h == "Score":
+                enriched_start_col = i - ENRICHED_HEADERS.index("Score")
+                break
+    else:
+        # Place enriched columns right after last filled column
+        enriched_start_col = last_filled_col
+
         # Expand grid if needed (sheet might not have enough columns)
         needed_cols = enriched_start_col + len(ENRICHED_HEADERS)
         current_cols = worksheet.col_count
@@ -204,12 +220,6 @@ async def score_sheet(
             col_letter = _col_to_letter(enriched_start_col + i)
             header_cells.append({"range": f"{col_letter}1", "values": [[h]]})
         worksheet.batch_update(header_cells)
-    else:
-        # Headers already exist — recalculate enriched_start_col from actual position
-        for i, h in enumerate(headers):
-            if h == "Score":
-                enriched_start_col = i - ENRICHED_HEADERS.index("Score")
-                break
 
     # Detect already-scored rows by checking "Score" column
     score_col_idx = enriched_start_col + ENRICHED_HEADERS.index("Score")
