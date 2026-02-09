@@ -192,6 +192,12 @@ async def score_sheet(
     existing_enriched = set(headers[enriched_start_col:]) if enriched_start_col < len(headers) else set()
 
     if not existing_enriched.issuperset(set(ENRICHED_HEADERS)):
+        # Expand grid if needed (sheet might not have enough columns)
+        needed_cols = enriched_start_col + len(ENRICHED_HEADERS)
+        current_cols = worksheet.col_count
+        if needed_cols > current_cols:
+            worksheet.resize(cols=needed_cols)
+
         # Write enriched headers
         header_cells = []
         for i, h in enumerate(ENRICHED_HEADERS):
