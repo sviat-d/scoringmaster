@@ -6,6 +6,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _count_keyword(text: str, keyword: str) -> int:
+    """Count keyword occurrences using word boundaries to avoid substring matches."""
+    pattern = r"\b" + re.escape(keyword) + r"\b"
+    return len(re.findall(pattern, text))
+
+
 # ─── Industry keyword groups ───
 INDUSTRY_KEYWORDS: dict[str, list[str]] = {
     "Affiliate / CPA Marketing": [
@@ -50,9 +56,9 @@ INDUSTRY_KEYWORDS: dict[str, list[str]] = {
     ],
     "Crypto / Fintech": [
         "crypto", "cryptocurrency", "bitcoin", "ethereum", "stablecoin",
-        "usdt", "usdc", "wallet", "defi", "blockchain", "web3",
-        "payment gateway", "psp", "payment service provider",
-        "payment processing", "fintech",
+        "usdt", "usdc", "crypto wallet", "defi", "blockchain", "web3",
+        "payment service provider", "fintech", "neobank",
+        "crypto exchange", "token", "smart contract",
     ],
     "High-Risk Ecommerce": [
         "nutra", "supplements", "forex tool", "cbd", "hemp",
@@ -96,8 +102,8 @@ OPERATIONAL_KEYWORDS: dict[str, list[str]] = {
         "crypto checkout", "crypto gateway",
     ],
     "partners": [
-        "partner program", "partners", "reseller", "white label",
-        "white-label", "referral",
+        "partner program", "become a partner", "reseller program",
+        "white label", "white-label", "referral program",
     ],
 }
 
@@ -179,22 +185,21 @@ def extract_signals(pages: dict[str, str]) -> SiteSignals:
 
     # Hard reject check
     for kw in HARD_REJECT_KEYWORDS:
-        if kw in all_text:
+        if _count_keyword(all_text, kw) > 0:
             signals.hard_reject = True
             signals.hard_reject_reason = f"Detected: {kw}"
             return signals
 
     # Non-business check
     for kw in NON_BUSINESS_KEYWORDS:
-        if kw in all_text:
+        if _count_keyword(all_text, kw) > 0:
             signals.non_business = True
 
     # Industry detection
     for industry, keywords in INDUSTRY_KEYWORDS.items():
         count = 0
         for kw in keywords:
-            occurrences = all_text.count(kw)
-            count += occurrences
+            count += _count_keyword(all_text, kw)
         if count > 0:
             signals.industries[industry] = count
 
@@ -202,14 +207,14 @@ def extract_signals(pages: dict[str, str]) -> SiteSignals:
     for signal_name, keywords in OPERATIONAL_KEYWORDS.items():
         count = 0
         for kw in keywords:
-            count += all_text.count(kw)
+            count += _count_keyword(all_text, kw)
         if count > 0:
             signals.operational_signals[signal_name] = count
 
     # Risk flags
     for flag, keywords in RISK_KEYWORDS.items():
         for kw in keywords:
-            if kw in all_text:
+            if _count_keyword(all_text, kw) > 0:
                 if flag not in signals.risk_flags:
                     signals.risk_flags.append(flag)
                 break
@@ -229,7 +234,7 @@ def extract_signals(pages: dict[str, str]) -> SiteSignals:
 
     # Careers page detection
     for kw in CAREERS_KEYWORDS:
-        if kw in all_text:
+        if _count_keyword(all_text, kw) > 0:
             signals.has_careers_page = True
             if signals.headcount_estimate == "Unknown":
                 signals.headcount_estimate = "10+"
