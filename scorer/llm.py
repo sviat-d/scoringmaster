@@ -15,12 +15,25 @@ _anthropic_client = None
 _openai_client = None
 
 
+def _can_import(module_name: str) -> bool:
+    """Check if a Python module can be imported."""
+    try:
+        __import__(module_name)
+        return True
+    except ImportError:
+        return False
+
+
 def _get_provider() -> str:
-    """Determine which LLM provider to use."""
+    """Determine which LLM provider to use (checks both env var AND SDK)."""
     if os.environ.get("ANTHROPIC_API_KEY"):
-        return "anthropic"
+        if _can_import("anthropic"):
+            return "anthropic"
+        logger.warning("ANTHROPIC_API_KEY is set but 'anthropic' package is not installed. Run: pip install anthropic")
     if os.environ.get("OPENAI_API_KEY"):
-        return "openai"
+        if _can_import("openai"):
+            return "openai"
+        logger.warning("OPENAI_API_KEY is set but 'openai' package is not installed. Run: pip install openai")
     return ""
 
 
@@ -55,7 +68,7 @@ def _get_openai_client():
 
 
 def is_available() -> bool:
-    return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY"))
+    return bool(_get_provider())
 
 
 # ── Business classification prompt ──
@@ -119,6 +132,7 @@ async def classify_business(domain: str, text: str, mode_id: str) -> dict | None
     """
     provider = _get_provider()
     if not provider:
+        logger.debug(f"LLM classification skipped for {domain}: no provider configured")
         return None
 
     # Truncate to fit context while keeping enough signal
