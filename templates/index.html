@@ -417,7 +417,12 @@
 
             es.addEventListener('start', (e) => {
                 const d = JSON.parse(e.data);
-                progressText.textContent = `Scoring ${d.total} leads from "${d.sheet_title}"...`;
+                const skip = d.skipped ? ` (${d.skipped} already scored, skipped)` : '';
+                if (d.total === 0) {
+                    progressText.textContent = `All leads already scored${skip}`;
+                } else {
+                    progressText.textContent = `Scoring ${d.total} new leads from "${d.sheet_title}"${skip}`;
+                }
             });
 
             es.addEventListener('progress', (e) => {
@@ -441,14 +446,16 @@
                 const d = JSON.parse(e.data);
                 es.close();
                 progressBar.style.width = '100%';
-                progressText.textContent = `Done! ${d.total} leads scored.`;
+                const skip = d.skipped ? `, ${d.skipped} skipped` : '';
+                progressText.textContent = `Done! ${d.total} leads scored${skip}.`;
 
                 document.getElementById('sum-a').textContent = d.summary.A || 0;
                 document.getElementById('sum-b').textContent = d.summary.B || 0;
                 document.getElementById('sum-c').textContent = d.summary.C || 0;
                 document.getElementById('sum-reject').textContent = d.summary.Reject || 0;
+                const skipMsg = d.skipped ? ` (${d.skipped} previously scored were skipped)` : '';
                 document.getElementById('summary-msg').textContent =
-                    `Results written to your Google Sheet (${d.total} leads)`;
+                    `Results written to your Google Sheet (${d.total} new leads)${skipMsg}`;
                 sheetSummary.classList.add('active');
 
                 sheetBtn.disabled = false;
