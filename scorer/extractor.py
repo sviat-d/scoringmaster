@@ -139,6 +139,17 @@ NON_BUSINESS_KEYWORDS = [
     "charity", "foundation", "government",
 ]
 
+# ── Content / media site detection ──
+CONTENT_SITE_KEYWORDS = [
+    "published on", "posted on", "author:", "written by",
+    "read more", "latest news", "breaking news", "press release",
+    "editorial", "journalist", "redakcja", "artykuł",
+    "opublikowano", "news archive", "blog post", "article",
+]
+
+# Minimum keyword matches required to classify an industry (fallback mode)
+MIN_INDUSTRY_MATCHES = 3
+
 
 class SiteSignals:
     """Structured signals extracted from a website."""
@@ -152,6 +163,8 @@ class SiteSignals:
         self.non_business: bool = False
         self.headcount_estimate: str = "Unknown"
         self.has_careers_page: bool = False
+        self.is_content_site: bool = False
+        self.content_site_score: int = 0  # how many content-site signals found
         self.raw_text_length: int = 0
 
     @property
@@ -195,12 +208,27 @@ def extract_signals(pages: dict[str, str]) -> SiteSignals:
         if _count_keyword(all_text, kw) > 0:
             signals.non_business = True
 
-    # Industry detection
+    # Content site detection (before industry, so we can adjust threshold)
+    content_score = 0
+    for kw in CONTENT_SITE_KEYWORDS:
+        content_score += _count_keyword(all_text, kw)
+    signals.content_site_score = content_score
+    if content_score >= 5:
+        signals.is_content_site = True
+
+    # Industry detection (with minimum threshold to reduce false positives)
+    # Content sites get a higher threshold since keywords often appear in articles
+    threshold = MIN_INDUSTRY_MATCHES * 2 if signals.is_content_site else MIN_INDUSTRY_MATCHES
     for industry, keywords in INDUSTRY_KEYWORDS.items():
         count = 0
+        distinct_matches = 0
         for kw in keywords:
-            count += _count_keyword(all_text, kw)
-        if count > 0:
+            kw_count = _count_keyword(all_text, kw)
+            if kw_count > 0:
+                distinct_matches += 1
+            count += kw_count
+        # Require multiple distinct keyword matches to classify
+        if distinct_matches >= threshold:
             signals.industries[industry] = count
 
     # Operational signals

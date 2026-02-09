@@ -69,7 +69,7 @@ class BaseMode:
     mode_id: str = ""
     mode_name: str = ""
 
-    def score(self, signals: SiteSignals, domain: str) -> ScoringResult:
+    def score(self, signals: SiteSignals, domain: str, classification: dict | None = None) -> ScoringResult:
         raise NotImplementedError
 
 

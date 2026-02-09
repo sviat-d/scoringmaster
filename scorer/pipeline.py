@@ -1,4 +1,4 @@
-"""Main scoring pipeline: crawl → extract → score → optional LLM → result."""
+"""Main scoring pipeline: crawl → LLM classify → extract signals → score → result."""
 
 import asyncio
 import logging
@@ -35,26 +35,31 @@ async def score_single(domain: str, mode_id: str, cache: dict) -> dict:
     # 1) Crawl
     pages = await crawl_domain_with_retry(domain, DEFAULT_MAX_PAGES)
 
-    # 2) Extract signals
+    # 2) If too little content, try crawling more pages
+    all_text = "\n".join(pages.values())
+    if len(all_text) < 1000 and pages:
+        extra_pages = await crawl_domain_with_retry(domain, EXTENDED_MAX_PAGES)
+        if len("\n".join(extra_pages.values())) > len(all_text):
+            pages = extra_pages
+            all_text = "\n".join(pages.values())
+
+    # 3) LLM business classification (primary method)
+    classification = None
+    if llm.is_available() and pages:
+        classification = await llm.classify_business(domain, all_text, mode_id)
+        if classification:
+            logger.info(
+                f"LLM classified {domain}: "
+                f"{classification.get('industry')} / {classification.get('business_type')}"
+            )
+
+    # 4) Extract keyword-based signals (operational signals, risk flags, headcount)
     signals = extract_signals(pages)
 
-    # 3) If confidence would be low, crawl more pages
-    if signals.raw_text_length < 1000 and pages:
-        extra_pages = await crawl_domain_with_retry(domain, EXTENDED_MAX_PAGES)
-        if len(extra_pages) > len(pages):
-            pages = extra_pages
-            signals = extract_signals(pages)
-
-    # 4) Rules-based scoring
+    # 5) Score using mode with LLM classification + keyword signals
     mode = get_mode(mode_id)
-    rules_result = mode.score(signals, domain)
+    rules_result = mode.score(signals, domain, classification)
     result = rules_result.to_dict()
-
-    # 5) Optional LLM enrichment
-    if llm.is_available() and pages:
-        all_text = "\n".join(pages.values())
-        llm_result = await llm.classify_with_llm(domain, all_text, mode_id)
-        result = llm.merge_llm_with_rules(result, llm_result)
 
     cache[cache_key] = result
     return result
