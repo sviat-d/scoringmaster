@@ -68,22 +68,25 @@ class InxyLeadsMode(BaseMode):
         top = signals.top_industry
         reasons: list[str] = []
         score = 3  # baseline
-        confidence = "Med"
         crypto_likelihood = "Low"
         business_model = _infer_business_model(signals)
+        signal_strength = 0  # track how many corroborating signals we have
 
         # ── Industry scoring ──
         if top in HIGH_CRYPTO_INDUSTRIES:
             score += 4
             crypto_likelihood = "High"
+            signal_strength += 2
             reasons.append(f"Industry '{top}' has high crypto adoption historically")
         elif top in SECONDARY_INDUSTRIES:
             score += 3
             crypto_likelihood = "Medium"
+            signal_strength += 1
             reasons.append(f"Industry '{top}' serves crypto-adjacent clients")
         elif top in INFRA_SERVING_CRYPTO:
             score += 2
             crypto_likelihood = "Medium"
+            signal_strength += 1
             reasons.append(f"Infrastructure/SaaS serving high-crypto verticals")
         elif top != "Unknown":
             score += 0
@@ -93,43 +96,63 @@ class InxyLeadsMode(BaseMode):
         if signals.has_crypto_signals:
             score += 2
             crypto_likelihood = "High"
+            signal_strength += 2
             reasons.append("Explicit crypto/stablecoin payment signals found")
 
         if signals.has_mass_payment_signals:
             score += 1
+            signal_strength += 1
             if crypto_likelihood != "High":
                 crypto_likelihood = "Medium"
             reasons.append("Mass payment / payout signals found")
 
         if signals.has_global_payment_signals:
             score += 1
+            signal_strength += 1
             if crypto_likelihood == "Low":
                 crypto_likelihood = "Medium"
             reasons.append("Cross-border / multi-currency signals found")
 
         if signals.operational_signals.get("api_integrations", 0) > 0:
             score += 1
+            signal_strength += 1
             reasons.append("API / integration-ready platform")
 
         if signals.operational_signals.get("partners", 0) > 0:
             score += 1
+            signal_strength += 1
             reasons.append("Partner / reseller program detected")
 
         # ── Multiple high-crypto industries detected ──
         high_matches = [i for i in signals.industries if i in HIGH_CRYPTO_INDUSTRIES]
         if len(high_matches) >= 2:
             score += 1
+            signal_strength += 1
             reasons.append(f"Multiple high-crypto industries: {', '.join(high_matches[:3])}")
 
-        # ── Risk flags (lower confidence, not score) ──
-        if signals.risk_flags:
-            confidence = "Med" if confidence == "High" else "Low"
-            reasons.append(f"Risk flags: {', '.join(signals.risk_flags)}")
+        # ── Confidence calculation ──
+        has_enough_text = signals.raw_text_length >= 2000
+        has_some_text = signals.raw_text_length >= 1000
 
-        # ── Low content confidence ──
-        if signals.raw_text_length < 1000:
+        if signal_strength >= 3 and has_enough_text:
+            confidence = "High"
+        elif signal_strength >= 2 and has_some_text:
+            confidence = "High"
+        elif signal_strength >= 1 and has_some_text:
+            confidence = "Med"
+        elif has_some_text:
+            confidence = "Med"
+        else:
             confidence = "Low"
             reasons.append("Limited website content available")
+
+        # Risk flags lower confidence by one step, not score
+        if signals.risk_flags:
+            if confidence == "High":
+                confidence = "Med"
+            elif confidence == "Med":
+                confidence = "Low"
+            reasons.append(f"Risk flags: {', '.join(signals.risk_flags)}")
 
         # Cap score
         score = max(1, min(10, score))
