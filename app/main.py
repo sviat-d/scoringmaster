@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, UploadFile, File, Form, Request, Query
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sse_starlette.sse import EventSourceResponse
 
@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from scorer.pipeline import score_leads
-from scorer.sheets import score_sheet, is_sheets_available
+from scorer.sheets import score_sheet, is_sheets_available, _get_gspread_client, _parse_sheet_id
 from scorer import llm
 
 import logging
@@ -28,27 +28,23 @@ app = FastAPI(title="Lead Scorer", version="1.0.0")
 async def _startup_check():
     provider = llm._get_provider()
     available = llm.is_available()
-    has_anthropic_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    has_openai_key = bool(os.environ.get("OPENAI_API_KEY"))
-    has_anthropic_pkg = llm._can_import("anthropic")
-    has_openai_pkg = llm._can_import("openai")
+    providers = llm.get_available_providers()
+    provider_names = [p["id"] for p in providers]
     logger.info(
-        f"LLM status: available={available}, provider={provider}, "
-        f"anthropic_key={has_anthropic_key}, anthropic_pkg={has_anthropic_pkg}, "
-        f"openai_key={has_openai_key}, openai_pkg={has_openai_pkg}"
+        f"LLM status: available={available}, default_provider={provider}, "
+        f"all_providers={provider_names}"
     )
     if not available:
-        reasons = []
-        if not has_anthropic_key and not has_openai_key:
-            reasons.append("No API keys set. Set ANTHROPIC_API_KEY or OPENAI_API_KEY (env var or .env file).")
-        if has_anthropic_key and not has_anthropic_pkg:
-            reasons.append("ANTHROPIC_API_KEY is set but 'anthropic' package is missing. Run: pip install anthropic")
-        if has_openai_key and not has_openai_pkg:
-            reasons.append("OPENAI_API_KEY is set but 'openai' package is missing. Run: pip install openai")
-        for r in reasons:
-            logger.warning(r)
-        if not reasons:
-            logger.warning("No LLM provider configured! Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
+        has_any_key = (
+            os.environ.get("ANTHROPIC_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+            or os.environ.get("GEMINI_API_KEY")
+        )
+        if not has_any_key:
+            logger.warning(
+                "No LLM API keys set. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, "
+                "or GEMINI_API_KEY (env var or .env file)."
+            )
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
@@ -61,8 +57,27 @@ _jobs: dict[str, bytes] = {}
 async def index(request: Request):
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "sheets_available": is_sheets_available()},
+        {
+            "request": request,
+            "sheets_available": is_sheets_available(),
+            "llm_providers": llm.get_available_providers(),
+        },
     )
+
+
+@app.get("/sheet-tabs")
+async def get_sheet_tabs(sheet_url: str = Query(...)):
+    """Return list of worksheet tab names for a Google Sheet."""
+    if not is_sheets_available():
+        return JSONResponse({"error": "Google Sheets credentials not configured", "tabs": []})
+    try:
+        gc = _get_gspread_client()
+        sheet_id = _parse_sheet_id(sheet_url)
+        spreadsheet = gc.open_by_key(sheet_id)
+        tabs = [ws.title for ws in spreadsheet.worksheets()]
+        return {"tabs": tabs, "title": spreadsheet.title}
+    except Exception as e:
+        return JSONResponse({"error": str(e), "tabs": []}, status_code=400)
 
 
 @app.post("/score")
@@ -70,6 +85,7 @@ async def score(
     request: Request,
     file: UploadFile = File(...),
     mode: str = Form("inxy_leads"),
+    llm_provider: str = Form(""),
 ):
     if mode not in ("inxy_leads", "founders_pl"):
         mode = "inxy_leads"
@@ -93,7 +109,7 @@ async def score(
             status_code=400,
         )
 
-    enriched = await score_leads(rows, domain_col, mode)
+    enriched = await score_leads(rows, domain_col, mode, llm_provider=llm_provider)
 
     job_id = str(uuid.uuid4())
     output = _build_csv(reader.fieldnames, enriched, mode)
@@ -131,6 +147,7 @@ async def score_sheet_sse(
     sheet_url: str = Query(...),
     mode: str = Query("inxy_leads"),
     sheet_name: str = Query(""),
+    llm_provider: str = Query(""),
 ):
     """SSE endpoint: scores domains from a Google Sheet and streams progress."""
     if mode not in ("inxy_leads", "founders_pl"):
@@ -146,7 +163,7 @@ async def score_sheet_sse(
 
     async def _stream():
         try:
-            async for event in score_sheet(sheet_url, mode, sheet_name):
+            async for event in score_sheet(sheet_url, mode, sheet_name, llm_provider=llm_provider):
                 yield {"event": event["event"], "data": json.dumps(event)}
         except Exception as e:
             yield {"event": "error", "data": json.dumps({"event": "error", "message": f"Server error: {e}"})}

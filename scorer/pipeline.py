@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 CONCURRENCY_LIMIT = 3
 
 
-async def score_single(domain: str, mode_id: str, cache: dict) -> dict:
+async def score_single(domain: str, mode_id: str, cache: dict, llm_provider: str = "") -> dict:
     """Score a single domain. Returns result dict."""
     domain = domain.strip().lower()
 
@@ -46,7 +46,7 @@ async def score_single(domain: str, mode_id: str, cache: dict) -> dict:
     # 3) LLM business classification (primary method)
     classification = None
     if llm.is_available() and pages:
-        classification = await llm.classify_business(domain, all_text, mode_id)
+        classification = await llm.classify_business(domain, all_text, mode_id, provider=llm_provider)
         if classification:
             logger.info(
                 f"LLM classified {domain}: "
@@ -66,7 +66,7 @@ async def score_single(domain: str, mode_id: str, cache: dict) -> dict:
 
 
 async def score_leads(
-    rows: list[dict], domain_col: str, mode_id: str
+    rows: list[dict], domain_col: str, mode_id: str, llm_provider: str = ""
 ) -> list[dict]:
     """Score all leads from CSV rows. Returns enriched rows."""
     semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
@@ -84,7 +84,7 @@ async def score_leads(
             return row
 
         async with semaphore:
-            result = await score_single(domain, mode_id, cache)
+            result = await score_single(domain, mode_id, cache, llm_provider=llm_provider)
             row["_result"] = result
             row["_category"] = result.get("category", "Reject")
             return row

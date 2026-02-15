@@ -128,6 +128,13 @@
             color: #484f58;
             cursor: not-allowed;
         }
+        .btn-secondary {
+            background: #30363d;
+            font-size: 0.85rem;
+            padding: 0.6rem 1rem;
+        }
+        .btn-secondary:hover { background: #3d444d; }
+        .btn-secondary:disabled { background: #21262d; color: #484f58; }
         .spinner {
             display: none;
             text-align: center;
@@ -135,6 +142,20 @@
             color: #8b949e;
         }
         .spinner.active { display: block; }
+        /* Input with button row */
+        .input-row {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .input-row input[type="text"] {
+            flex: 1;
+            margin-bottom: 0;
+        }
+        .input-row button {
+            width: auto;
+            white-space: nowrap;
+        }
         /* Progress UI */
         .progress-container {
             display: none;
@@ -229,6 +250,12 @@
         }
         .badge-ok { background: #238636; color: #fff; }
         .badge-no { background: #da3633; color: #fff; }
+        .sheet-title-info {
+            font-size: 0.8rem;
+            color: #3fb950;
+            margin-bottom: 1rem;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -257,6 +284,17 @@
                         <option value="inxy_leads" selected>Inxy Leads (Crypto Payments)</option>
                         <option value="founders_pl">Founders PL (Product Founders)</option>
                     </select>
+
+                    {% if llm_providers|length > 1 %}
+                    <label for="llm-csv">LLM Provider</label>
+                    <select name="llm_provider" id="llm-csv">
+                        {% for p in llm_providers %}
+                        <option value="{{ p.id }}">{{ p.name }}</option>
+                        {% endfor %}
+                    </select>
+                    {% elif llm_providers|length == 1 %}
+                    <input type="hidden" name="llm_provider" value="{{ llm_providers[0].id }}">
+                    {% endif %}
 
                     <label>CSV File</label>
                     <div class="hint">Must contain a column with "domain" in header (e.g. "Company Domain")</div>
@@ -288,17 +326,36 @@
                     <option value="founders_pl">Founders PL (Product Founders)</option>
                 </select>
 
+                {% if llm_providers|length > 1 %}
+                <label for="llm-sheets">LLM Provider</label>
+                <select id="llm-sheets">
+                    {% for p in llm_providers %}
+                    <option value="{{ p.id }}">{{ p.name }}</option>
+                    {% endfor %}
+                </select>
+                {% endif %}
+
                 <label for="sheet-url">Google Sheet URL or ID</label>
                 <div class="hint">
                     Paste the full URL or spreadsheet ID. The sheet must be shared with the service account.
                 </div>
-                <input type="text" id="sheet-url" placeholder="https://docs.google.com/spreadsheets/d/...">
-
-                <label for="sheet-tab">Sheet Tab Name</label>
-                <div class="hint">
-                    Leave empty for the first tab, or type the exact tab name (e.g. "Cold Outreach")
+                <div class="input-row">
+                    <input type="text" id="sheet-url" placeholder="https://docs.google.com/spreadsheets/d/...">
+                    <button type="button" id="loadTabsBtn" class="btn-secondary"
+                        {% if not sheets_available %}disabled{% endif %}>
+                        Load tabs
+                    </button>
                 </div>
-                <input type="text" id="sheet-tab" placeholder="(first tab)">
+
+                <div class="sheet-title-info" id="sheet-title-info"></div>
+
+                <label for="sheet-tab">Sheet Tab</label>
+                <div class="hint" id="sheet-tab-hint">
+                    Enter a Sheet URL above and click "Load tabs" to see available tabs.
+                </div>
+                <select id="sheet-tab">
+                    <option value="">(first tab)</option>
+                </select>
 
                 <button id="sheetBtn" {% if not sheets_available %}disabled{% endif %}>
                     {% if sheets_available %}Score from Sheet{% else %}Google credentials not configured{% endif %}
@@ -385,7 +442,60 @@
             spinner.classList.add('active');
         });
 
-        // ── Google Sheets ──
+        // ── Load Sheet Tabs ──
+        const loadTabsBtn = document.getElementById('loadTabsBtn');
+        const sheetUrlInput = document.getElementById('sheet-url');
+        const sheetTabSelect = document.getElementById('sheet-tab');
+        const sheetTabHint = document.getElementById('sheet-tab-hint');
+        const sheetTitleInfo = document.getElementById('sheet-title-info');
+
+        loadTabsBtn.addEventListener('click', async () => {
+            const url = sheetUrlInput.value.trim();
+            if (!url) {
+                document.getElementById('sheet-error').textContent = 'Please enter a Google Sheet URL';
+                document.getElementById('sheet-error').style.display = 'block';
+                return;
+            }
+
+            document.getElementById('sheet-error').style.display = 'none';
+            loadTabsBtn.disabled = true;
+            loadTabsBtn.textContent = 'Loading...';
+
+            try {
+                const resp = await fetch('/sheet-tabs?sheet_url=' + encodeURIComponent(url));
+                const data = await resp.json();
+
+                if (data.error) {
+                    document.getElementById('sheet-error').textContent = data.error;
+                    document.getElementById('sheet-error').style.display = 'block';
+                    return;
+                }
+
+                // Populate dropdown
+                sheetTabSelect.innerHTML = '<option value="">(first tab)</option>';
+                data.tabs.forEach(tab => {
+                    const opt = document.createElement('option');
+                    opt.value = tab;
+                    opt.textContent = tab;
+                    sheetTabSelect.appendChild(opt);
+                });
+
+                sheetTabHint.textContent = data.tabs.length + ' tab(s) found. Select one:';
+
+                if (data.title) {
+                    sheetTitleInfo.textContent = 'Connected: ' + data.title;
+                    sheetTitleInfo.style.display = 'block';
+                }
+            } catch (e) {
+                document.getElementById('sheet-error').textContent = 'Failed to load tabs: ' + e.message;
+                document.getElementById('sheet-error').style.display = 'block';
+            } finally {
+                loadTabsBtn.disabled = false;
+                loadTabsBtn.textContent = 'Load tabs';
+            }
+        });
+
+        // ── Google Sheets Scoring ──
         const sheetBtn = document.getElementById('sheetBtn');
         const sheetUrl = document.getElementById('sheet-url');
         const sheetError = document.getElementById('sheet-error');
@@ -418,8 +528,15 @@
             sheetBtn.textContent = 'Scoring...';
 
             const mode = document.getElementById('mode-sheets').value;
-            const tabName = document.getElementById('sheet-tab').value.trim();
-            const params = new URLSearchParams({ sheet_url: url, mode: mode, sheet_name: tabName });
+            const tabName = sheetTabSelect.value;
+            const llmSelect = document.getElementById('llm-sheets');
+            const llmProvider = llmSelect ? llmSelect.value : '';
+            const params = new URLSearchParams({
+                sheet_url: url,
+                mode: mode,
+                sheet_name: tabName,
+                llm_provider: llmProvider,
+            });
             const es = new EventSource('/score-sheet?' + params.toString());
 
             es.addEventListener('start', (e) => {
