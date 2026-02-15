@@ -36,19 +36,23 @@ class FoundersPLMode(BaseMode):
         if signals.hard_reject:
             return ScoringResult(
                 industry=signals.top_industry,
+                risk_flags=signals.risk_flags,
                 score=1,
                 reason_short=f"Hard reject: {signals.hard_reject_reason}",
                 reasons_bullets=["Detected hard-reject signal"],
                 confidence="High",
+                next_action="Skip",
             )
 
         if signals.non_business and not signals.industries:
             return ScoringResult(
                 industry="Non-business",
+                risk_flags=signals.risk_flags,
                 score=1,
                 reason_short="Non-business website",
                 reasons_bullets=["Not a business website"],
                 confidence="Med",
+                next_action="Skip",
             )
 
         if not signals.industries and signals.raw_text_length < 200 and not classification:
@@ -57,6 +61,7 @@ class FoundersPLMode(BaseMode):
                 reason_short="Could not extract meaningful content",
                 reasons_bullets=["Website empty or inaccessible"],
                 confidence="Low",
+                next_action="Skip",
             )
 
         if classification:
@@ -78,6 +83,7 @@ class FoundersPLMode(BaseMode):
         reasons: list[str] = []
         score = 5  # baseline for founders
         confidence = "Med"
+        headcount_unknown = False
 
         # ── Content site / non-target → reject ──
         if is_content_site or business_type in NON_TARGET_TYPES:
@@ -85,6 +91,7 @@ class FoundersPLMode(BaseMode):
                 industry=llm_industry_name,
                 business_model=business_type,
                 headcount_estimate=signals.headcount_estimate,
+                risk_flags=signals.risk_flags,
                 score=1,
                 confidence="High" if llm_confidence == "high" else "Med",
                 reason_short=f"Non-target: {llm_industry_name} ({business_type})",
@@ -98,6 +105,7 @@ class FoundersPLMode(BaseMode):
                 industry=llm_industry_name,
                 business_model="Service",
                 headcount_estimate=signals.headcount_estimate,
+                risk_flags=signals.risk_flags,
                 score=2,
                 confidence="High" if llm_confidence == "high" else "Med",
                 reason_short="Service/agency company — not a fit for Founders PL",
@@ -113,21 +121,28 @@ class FoundersPLMode(BaseMode):
         if is_product:
             score += 2
             reasons.append(f"LLM: product company — {primary_business}")
+        elif business_type == "unknown":
+            confidence = "Low"
+            reasons.append(f"LLM: business type unclear — {primary_business}")
         else:
             reasons.append(f"LLM: {primary_business} (type: {business_type})")
 
         # Industry context
         reasons.append(f"Industry: {llm_industry_name}")
 
-        # Headcount rules
+        # Headcount rules — product startups (1-5) are fine for Founders PL
         headcount = signals.headcount_estimate
         if headcount == "Unknown":
             score = max(score - 1, 4)
-            confidence = "Low"
+            headcount_unknown = True
             reasons.append("Headcount unknown — manual check if CEO lead")
         elif headcount in ("1-5",):
-            score = max(score - 1, 3)
-            reasons.append("Very small team (1-5) — verify product stage")
+            if is_product:
+                # Small product team is normal for Founders PL
+                reasons.append("Small product team (1-5) — early-stage founder")
+            else:
+                score = max(score - 1, 3)
+                reasons.append("Very small team (1-5) — verify product stage")
         elif headcount == "10+":
             score += 1
             reasons.append("Team 10+ — established company")
@@ -143,8 +158,10 @@ class FoundersPLMode(BaseMode):
             score += 1
             reasons.append("Active hiring — growing product team")
 
-        # LLM confidence boosts our confidence
-        if llm_confidence == "high" and is_product:
+        # ── Confidence: headcount uncertainty takes priority ──
+        if headcount_unknown:
+            confidence = "Low"
+        elif llm_confidence == "high" and is_product:
             confidence = "High"
         elif llm_confidence == "high":
             confidence = "Med"
@@ -203,8 +220,11 @@ class FoundersPLMode(BaseMode):
             confidence = "Low"
             reasons.append("Headcount unknown — manual check if CEO lead")
         elif headcount == "1-5":
-            score = max(score - 1, 3)
-            reasons.append("Very small team (1-5) — verify product stage")
+            if is_product:
+                reasons.append("Small product team (1-5) — early-stage founder")
+            else:
+                score = max(score - 1, 3)
+                reasons.append("Very small team (1-5) — verify product stage")
         elif headcount == "10+":
             score += 1
             reasons.append("Team 10+ — established company")
