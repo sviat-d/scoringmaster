@@ -1,8 +1,10 @@
 """LLM-based business classification — primary classification method.
 
-Supports three providers:
-- Anthropic (Claude Sonnet) — quality, set ANTHROPIC_API_KEY
-- OpenAI (GPT) — alternative, set OPENAI_API_KEY
+Primary provider:
+- Anthropic (Claude Haiku 4.5) — best value for classification, set ANTHROPIC_API_KEY
+
+Additional providers (if configured):
+- OpenAI (GPT) — set OPENAI_API_KEY
 - Google Gemini (Flash) — free tier, set GEMINI_API_KEY
 """
 
@@ -49,7 +51,7 @@ def get_available_providers() -> list[dict]:
     if os.environ.get("GEMINI_API_KEY") and _can_import("google.generativeai"):
         providers.append({"id": "gemini", "name": "Gemini Flash (free)"})
     if os.environ.get("ANTHROPIC_API_KEY") and _can_import("anthropic"):
-        providers.append({"id": "anthropic", "name": "Claude Sonnet (quality)"})
+        providers.append({"id": "anthropic", "name": "Claude Haiku 4.5"})
     if os.environ.get("OPENAI_API_KEY") and _can_import("openai"):
         providers.append({"id": "openai", "name": "GPT-4o Mini"})
     return providers
@@ -244,7 +246,7 @@ async def _call_anthropic(user_prompt: str) -> str | None:
         return None
 
     response = await client.messages.create(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-haiku-4-5-20251001",
         max_tokens=300,
         system=CLASSIFY_SYSTEM_PROMPT,
         messages=[
