@@ -166,9 +166,10 @@ async def score_sheet_sse(
             async for event in score_sheet(sheet_url, mode, sheet_name, llm_provider=llm_provider):
                 yield {"event": event["event"], "data": json.dumps(event)}
         except Exception as e:
+            logger.exception(f"SSE stream error: {e}")
             yield {"event": "error", "data": json.dumps({"event": "error", "message": f"Server error: {e}"})}
 
-    return EventSourceResponse(_stream())
+    return EventSourceResponse(_stream(), ping=15)
 
 
 ENRICHED_COLUMNS = [
