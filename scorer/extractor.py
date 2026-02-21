@@ -78,6 +78,27 @@ INDUSTRY_KEYWORDS: dict[str, list[str]] = {
         "our platform", "saas platform", "saas product",
         "free trial", "sign up free", "get started",
     ],
+    "eSIM / Telecom": [
+        "esim", "e-sim", "travel sim", "data plan", "mobile data",
+        "roaming", "travel connectivity", "mvno", "virtual operator",
+        "local data", "international data plan",
+    ],
+    "Dev Studio / IT Outsourcing": [
+        "software development", "dev team", "development team",
+        "outsourcing", "outstaffing", "dedicated team",
+        "nearshore", "offshore development", "remote developers",
+        "custom development", "full-stack team", "development agency",
+    ],
+    "Creator / Royalty Platform": [
+        "creator", "creators", "royalty", "royalties", "donate",
+        "donation", "tip jar", "support creator", "fan funding",
+        "creator payout", "creator economy", "monetize content",
+    ],
+    "Bug Bounty / Rewards": [
+        "bug bounty", "vulnerability", "security reward",
+        "responsible disclosure", "bounty program", "hacker",
+        "security researcher", "vulnerability disclosure",
+    ],
 }
 
 # ── Operational signal keywords ──

@@ -175,6 +175,7 @@ ENRICHED_COLUMNS = [
     "Use Case",
     "Detected Industry",
     "Business Model",
+    "Product Use Cases",
     "Headcount Estimate",
     "Crypto Adoption Likelihood",
     "Risk Flags",
@@ -207,6 +208,7 @@ def _build_csv(original_fields: list[str], enriched: list[dict], mode: str) -> s
         row["Use Case"] = mode
         row["Detected Industry"] = result.get("industry", "Unknown")
         row["Business Model"] = result.get("business_model", "Unknown")
+        row["Product Use Cases"] = ", ".join(result.get("use_cases", []))
         row["Headcount Estimate"] = result.get("headcount_estimate", "Unknown")
         row["Crypto Adoption Likelihood"] = result.get("crypto_adoption_likelihood", "Low")
         row["Risk Flags"] = ", ".join(result.get("risk_flags", []))

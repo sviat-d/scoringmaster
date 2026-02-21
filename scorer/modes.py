@@ -23,6 +23,7 @@ class ScoringResult:
         reasons_bullets: list[str] | None = None,
         opener: str = "",
         next_action: str = "",
+        use_cases: list[str] | None = None,
     ):
         self.industry = industry
         self.business_model = business_model
@@ -35,6 +36,7 @@ class ScoringResult:
         self.reasons_bullets = reasons_bullets or []
         self.opener = opener
         self.next_action = next_action
+        self.use_cases = use_cases or []
 
     @property
     def category(self) -> str:
@@ -60,6 +62,7 @@ class ScoringResult:
             "reasons_bullets": self.reasons_bullets,
             "opener": self.opener,
             "next_action": self.next_action,
+            "use_cases": self.use_cases,
         }
 
 

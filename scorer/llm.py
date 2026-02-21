@@ -119,8 +119,12 @@ CRITICAL RULES:
    - A news portal writing about crypto is "media", NOT "crypto_fintech"
    - A marketing agency offering affiliate services to clients is "agency", NOT "affiliate_cpa"
    - A blog about gambling is "media", NOT "igaming"
-   - An IT outsourcing company is "agency", NOT "saas"
+   - A software dev studio / IT outsourcing company with distributed teams is "dev_studio", NOT "agency" or "saas"
+   - A pure consulting / marketing agency (no dev teams) is "agency"
    - A company that MENTIONS crypto in passing is NOT "crypto_fintech" unless crypto is their core business
+   - An eSIM / travel connectivity provider is "esim_telecom", NOT "ecommerce"
+   - A bug bounty / security reward platform is "bug_bounty", NOT "saas"
+   - A creator donation / royalty platform is "creator_platform", NOT "marketplace"
 
 2. Look for clear signals of the company's primary activity:
    - Do they SELL a product/service? What is it?
@@ -149,14 +153,18 @@ INDUSTRY_CODES (use exactly one):
 - "freelance_contractor" — Freelance marketplaces, contractor platforms
 - "payroll_payouts" — Payroll services, mass payout platforms
 - "marketplace" — Multi-vendor marketplaces, e-commerce platforms with multiple sellers
-- "gaming_esports" — Gaming, esports, digital goods platforms
+- "gaming_esports" — Gaming, esports, digital goods platforms, skin/item marketplaces
 - "crypto_fintech" — Crypto exchanges, wallets, DeFi, fintech platforms, payment processors
 - "high_risk_ecommerce" — Supplements, nutra, CBD, forex tools
 - "psp_orchestration" — Payment orchestration, payment service providers, billing platforms
 - "affiliate_tracking" — Affiliate tracking software, conversion attribution
+- "esim_telecom" — eSIM providers, travel connectivity, mobile virtual operators (MVNO)
+- "dev_studio" — Software development agencies/studios with distributed teams, IT outsourcing companies (NOT pure consulting)
+- "creator_platform" — Creator economy platforms, royalty distribution, donation/tip platforms
+- "bug_bounty" — Bug bounty platforms, security reward programs, vulnerability disclosure platforms
 - "saas" — SaaS products, cloud platforms (not fitting other categories)
 - "ecommerce" — Regular online stores, retail
-- "agency" — Marketing agencies, development agencies, consulting firms, IT outsourcing
+- "agency" — Marketing agencies, consulting firms (NOT dev studios with distributed teams — use dev_studio)
 - "media" — News portals, blogs, content sites, magazines
 - "education" — Educational platforms, courses, training programs
 - "other" — Anything not fitting above categories
@@ -313,6 +321,10 @@ INDUSTRY_CODE_MAP = {
     "high_risk_ecommerce": "High-Risk Ecommerce",
     "psp_orchestration": "Payment Orchestration / PSP",
     "affiliate_tracking": "Affiliate Tracking Software",
+    "esim_telecom": "eSIM / Telecom",
+    "dev_studio": "Dev Studio / IT Outsourcing",
+    "creator_platform": "Creator / Royalty Platform",
+    "bug_bounty": "Bug Bounty / Rewards",
     "saas": "SaaS (General)",
     "ecommerce": "Ecommerce",
     "agency": "Agency / Consulting",
@@ -322,7 +334,7 @@ INDUSTRY_CODE_MAP = {
     "unknown": "Unknown",
 }
 
-NON_TARGET_INDUSTRIES = {"media", "education", "agency", "other", "unknown"}
+NON_TARGET_INDUSTRIES = {"media", "education", "other", "unknown"}
 
 
 def map_industry_code(code: str) -> str:

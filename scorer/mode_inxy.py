@@ -23,6 +23,8 @@ SECONDARY_INDUSTRIES = {
     "Payment Orchestration / PSP",
     "Affiliate Tracking Software",
     "Marketplace",
+    "Dev Studio / IT Outsourcing",
+    "Creator / Royalty Platform",
 }
 
 # Industries that serve high-crypto clients → also strong signal
@@ -31,6 +33,8 @@ INFRA_SERVING_CRYPTO = {
     "Payment Orchestration / PSP",
     "Affiliate Tracking Software",
     "SaaS (General)",
+    "eSIM / Telecom",
+    "Bug Bounty / Rewards",
 }
 
 # LLM industry codes mapped to the same categories
@@ -39,8 +43,64 @@ HIGH_CRYPTO_CODES = {
     "freelance_contractor", "payroll_payouts", "gaming_esports",
     "crypto_fintech", "high_risk_ecommerce",
 }
-SECONDARY_CODES = {"psp_orchestration", "affiliate_tracking", "marketplace"}
-INFRA_CODES = {"hosting", "psp_orchestration", "affiliate_tracking", "saas"}
+SECONDARY_CODES = {
+    "psp_orchestration", "affiliate_tracking", "marketplace",
+    "dev_studio", "creator_platform",
+}
+INFRA_CODES = {
+    "hosting", "psp_orchestration", "affiliate_tracking", "saas",
+    "esim_telecom", "bug_bounty",
+}
+
+# ── Use case mapping by industry code ──
+# pay_in:  company accepts crypto from customers/clients
+# pay_out: company does mass stablecoin payouts to recipients
+# exchange: crypto<>fiat conversion, treasury, settlement rails
+USE_CASE_BY_INDUSTRY = {
+    "affiliate_cpa": ["pay_out"],
+    "igaming": ["pay_in"],
+    "adult": ["pay_in"],
+    "hosting": ["pay_in"],
+    "vpn_privacy": ["pay_in", "pay_out"],
+    "freelance_contractor": ["pay_out"],
+    "payroll_payouts": ["pay_out"],
+    "marketplace": ["pay_in", "pay_out"],
+    "gaming_esports": ["pay_in", "pay_out"],
+    "crypto_fintech": ["exchange"],
+    "high_risk_ecommerce": ["pay_in"],
+    "psp_orchestration": ["exchange"],
+    "affiliate_tracking": ["pay_out"],
+    "esim_telecom": ["pay_in"],
+    "dev_studio": ["pay_in", "pay_out"],
+    "creator_platform": ["pay_in", "pay_out"],
+    "bug_bounty": ["pay_out"],
+    "saas": ["pay_in"],
+    "ecommerce": ["pay_in"],
+    "agency": ["pay_in"],
+}
+
+# Use case mapping by keyword-detected industry (display names)
+USE_CASE_BY_INDUSTRY_NAME = {
+    "Affiliate / CPA Marketing": ["pay_out"],
+    "iGaming & Betting": ["pay_in"],
+    "Adult / Webcam": ["pay_in"],
+    "Hosting / Infrastructure": ["pay_in"],
+    "VPN / Privacy / Security": ["pay_in", "pay_out"],
+    "Freelance / Contractor Platform": ["pay_out"],
+    "Global Payroll / Payouts": ["pay_out"],
+    "Marketplace": ["pay_in", "pay_out"],
+    "Gaming / Esports / Digital Goods": ["pay_in", "pay_out"],
+    "Crypto / Fintech": ["exchange"],
+    "High-Risk Ecommerce": ["pay_in"],
+    "Payment Orchestration / PSP": ["exchange"],
+    "Affiliate Tracking Software": ["pay_out"],
+    "eSIM / Telecom": ["pay_in"],
+    "Dev Studio / IT Outsourcing": ["pay_in", "pay_out"],
+    "Creator / Royalty Platform": ["pay_in", "pay_out"],
+    "Bug Bounty / Rewards": ["pay_out"],
+    "SaaS (General)": ["pay_in"],
+    "Agency / Consulting": ["pay_in"],
+}
 
 
 class InxyLeadsMode(BaseMode):
@@ -116,6 +176,7 @@ class InxyLeadsMode(BaseMode):
                     reason_short=f"Non-target business ({llm_industry_name}) but mentions crypto",
                     reasons_bullets=reasons,
                     next_action="Manual review — non-target but crypto mentions",
+                    use_cases=["pay_in"],
                 )
 
             return ScoringResult(
@@ -127,6 +188,44 @@ class InxyLeadsMode(BaseMode):
                 reason_short=f"Non-target: {llm_industry_name}",
                 reasons_bullets=reasons,
                 next_action="Skip or deprioritize",
+            )
+
+        # ── Agency: not auto-reject but uncertain ICP, score modestly ──
+        if llm_industry_code == "agency":
+            score += 1
+            reasons.append(f"LLM: '{llm_industry_name}' — potential use case: crypto B2B invoices")
+            reasons.append("Agency ICP unclear — needs discovery to confirm crypto demand")
+
+            if signals.has_crypto_signals:
+                score += 2
+                signal_strength += 2
+                crypto_likelihood = "Medium"
+                reasons.append("Explicit crypto/stablecoin payment signals found on site")
+            if signals.has_global_payment_signals:
+                score += 1
+                signal_strength += 1
+                reasons.append("Cross-border / multi-currency signals found")
+
+            score = max(1, min(10, score))
+            use_cases = ["pay_in"]
+            if signals.has_mass_payment_signals:
+                use_cases.append("pay_out")
+                reasons.append("Mass payment / payout signals found")
+
+            confidence = "Med" if llm_confidence == "high" else "Low"
+            return ScoringResult(
+                industry=llm_industry_name,
+                business_model=business_type,
+                headcount_estimate=signals.headcount_estimate,
+                crypto_adoption_likelihood=crypto_likelihood,
+                risk_flags=signals.risk_flags,
+                score=score,
+                confidence=confidence,
+                reason_short=f"Agency/consulting — potential crypto invoices use case",
+                reasons_bullets=reasons,
+                opener=_generate_opener(llm_industry_name, signals, domain),
+                next_action="Manual review before outreach" if score >= 4 else "Skip or deprioritize",
+                use_cases=use_cases,
             )
 
         # ── Industry scoring based on LLM classification ──
@@ -210,6 +309,9 @@ class InxyLeadsMode(BaseMode):
         # Cap score
         score = max(1, min(10, score))
 
+        # ── Use case detection ──
+        use_cases = _detect_use_cases(llm_industry_code, signals)
+
         # Generate opener
         business_model = business_type if business_type != "other" else _infer_business_model(signals)
         opener = _generate_opener(llm_industry_name, signals, domain)
@@ -227,6 +329,7 @@ class InxyLeadsMode(BaseMode):
             reasons_bullets=reasons,
             opener=opener,
             next_action=next_action,
+            use_cases=use_cases,
         )
 
     def _score_keywords_only(self, signals: SiteSignals, domain: str) -> ScoringResult:
@@ -334,6 +437,9 @@ class InxyLeadsMode(BaseMode):
         # Cap score
         score = max(1, min(10, score))
 
+        # ── Use case detection ──
+        use_cases = _detect_use_cases_by_name(top, signals)
+
         # Generate opener
         opener = _generate_opener(top, signals, domain)
         next_action = _suggest_next_action(score, signals)
@@ -350,7 +456,29 @@ class InxyLeadsMode(BaseMode):
             reasons_bullets=reasons,
             opener=opener,
             next_action=next_action,
+            use_cases=use_cases,
         )
+
+
+def _detect_use_cases(industry_code: str, signals: SiteSignals) -> list[str]:
+    """Detect relevant product use cases based on industry code and signals."""
+    use_cases = list(USE_CASE_BY_INDUSTRY.get(industry_code, []))
+    # Enrich from operational signals
+    if signals.has_crypto_signals and "pay_in" not in use_cases:
+        use_cases.append("pay_in")
+    if signals.has_mass_payment_signals and "pay_out" not in use_cases:
+        use_cases.append("pay_out")
+    return use_cases
+
+
+def _detect_use_cases_by_name(industry_name: str, signals: SiteSignals) -> list[str]:
+    """Detect use cases from keyword-detected industry (display name)."""
+    use_cases = list(USE_CASE_BY_INDUSTRY_NAME.get(industry_name, []))
+    if signals.has_crypto_signals and "pay_in" not in use_cases:
+        use_cases.append("pay_in")
+    if signals.has_mass_payment_signals and "pay_out" not in use_cases:
+        use_cases.append("pay_out")
+    return use_cases
 
 
 def _infer_business_model(signals: SiteSignals) -> str:
@@ -388,7 +516,8 @@ def _summarize(industry: str, score: int, crypto_likelihood: str) -> str:
 
 
 def _generate_opener(industry: str, signals: SiteSignals, domain: str) -> str:
-    if industry in HIGH_CRYPTO_INDUSTRIES:
+    all_target_industries = HIGH_CRYPTO_INDUSTRIES | SECONDARY_INDUSTRIES | INFRA_SERVING_CRYPTO
+    if industry in all_target_industries:
         if signals.has_crypto_signals:
             return (
                 f"I noticed {domain} already works with crypto payments. "
