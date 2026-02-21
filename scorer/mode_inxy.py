@@ -249,7 +249,7 @@ class InxyLeadsMode(BaseMode):
 
         # ── Industry scoring based on LLM classification ──
         if llm_industry_code in HIGH_CRYPTO_CODES:
-            score += 4
+            score += 5
             crypto_likelihood = "High"
             signal_strength += 2
             reasons.append(f"LLM: '{llm_industry_name}' — high crypto adoption industry")
@@ -268,6 +268,13 @@ class InxyLeadsMode(BaseMode):
             reasons.append(f"LLM: regular e-commerce ({primary_business})")
         else:
             reasons.append(f"LLM: '{llm_industry_name}' ({primary_business})")
+
+        # ── Implied use-case boost: industry itself implies crypto need ──
+        implied_cases = USE_CASE_BY_INDUSTRY.get(llm_industry_code, [])
+        if implied_cases and llm_industry_code in HIGH_CRYPTO_CODES:
+            score += 1
+            signal_strength += 1
+            reasons.append(f"Industry implies {'/'.join(implied_cases)} need — strong ICP fit")
 
         # ── Operational signal boosts (from keywords) ──
         if signals.has_crypto_signals:
@@ -337,7 +344,7 @@ class InxyLeadsMode(BaseMode):
 
         # Extra penalty when ALL evidence is from weak pages (blog/faq/about)
         if signals.evidence and all(e.page_type in WEAK_PAGE_TYPES for e in signals.evidence):
-            score -= 2
+            score -= 3
             reasons.append("All evidence from weak pages only (blog/faq/about)")
 
         # Cap score
@@ -389,7 +396,7 @@ class InxyLeadsMode(BaseMode):
 
         # ── Industry scoring ──
         if top in HIGH_CRYPTO_INDUSTRIES:
-            score += 4
+            score += 5
             crypto_likelihood = "High"
             signal_strength += 2
             reasons.append(f"Industry '{top}' has high crypto adoption historically")
@@ -406,6 +413,15 @@ class InxyLeadsMode(BaseMode):
         elif top != "Unknown":
             score += 0
             reasons.append(f"Industry '{top}' has low crypto adoption signal")
+
+        # ── Implied use-case boost: industry itself implies crypto need ──
+        # Don't give this boost if all evidence is from weak pages (likely content site)
+        all_weak = signals.evidence and all(e.page_type in WEAK_PAGE_TYPES for e in signals.evidence)
+        implied_cases = USE_CASE_BY_INDUSTRY_NAME.get(top, [])
+        if implied_cases and top in HIGH_CRYPTO_INDUSTRIES and not all_weak:
+            score += 1
+            signal_strength += 1
+            reasons.append(f"Industry implies {'/'.join(implied_cases)} need — strong ICP fit")
 
         # ── Operational signal boosts ──
         if signals.has_crypto_signals:
@@ -487,7 +503,7 @@ class InxyLeadsMode(BaseMode):
 
         # Extra penalty when ALL evidence is from weak pages (blog/faq/about)
         if signals.evidence and all(e.page_type in WEAK_PAGE_TYPES for e in signals.evidence):
-            score -= 2
+            score -= 3
             reasons.append("All evidence from weak pages only (blog/faq/about)")
 
         # Cap score
