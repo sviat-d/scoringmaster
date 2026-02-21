@@ -1,7 +1,8 @@
 """Inxy Leads scoring mode — primary mode for crypto payment processing leads."""
 
-from scorer.extractor import SiteSignals
+from scorer.extractor import SiteSignals, WEAK_PAGE_TYPES
 from scorer.modes import BaseMode, ScoringResult, register_mode
+from scorer.models import EvidenceItem, SubScores
 from scorer import llm
 
 # Industries with historically high crypto adoption
@@ -108,6 +109,9 @@ class InxyLeadsMode(BaseMode):
     mode_name = "Inxy Leads (Crypto Payments)"
 
     def score(self, signals: SiteSignals, domain: str, classification: dict | None = None) -> ScoringResult:
+        sub_scores = signals.sub_scores
+        evidence_summary = _build_evidence_summary(signals)
+
         # Hard reject
         if signals.hard_reject:
             return ScoringResult(
@@ -116,6 +120,8 @@ class InxyLeadsMode(BaseMode):
                 reason_short=f"Hard reject: {signals.hard_reject_reason}",
                 reasons_bullets=["Detected hard-reject signal"],
                 confidence="High",
+                sub_scores=sub_scores,
+                evidence_summary=evidence_summary,
             )
 
         if signals.non_business and not signals.industries:
@@ -125,6 +131,8 @@ class InxyLeadsMode(BaseMode):
                 reason_short="Non-business website (blog, NGO, personal site)",
                 reasons_bullets=["Not a business website"],
                 confidence="Med",
+                sub_scores=sub_scores,
+                evidence_summary=evidence_summary,
             )
 
         if not signals.industries and signals.raw_text_length < 200 and not classification:
@@ -133,6 +141,8 @@ class InxyLeadsMode(BaseMode):
                 reason_short="Could not extract meaningful content from website",
                 reasons_bullets=["Website empty or inaccessible"],
                 confidence="Low",
+                sub_scores=sub_scores,
+                evidence_summary=evidence_summary,
             )
 
         # ── Determine industry: LLM primary, keywords fallback ──
@@ -151,6 +161,9 @@ class InxyLeadsMode(BaseMode):
         is_content_site = classification.get("is_content_site", False)
         llm_confidence = classification.get("confidence", "medium")
         primary_business = classification.get("primary_business", "")
+
+        sub_scores = signals.sub_scores
+        evidence_summary = _build_evidence_summary(signals)
 
         reasons: list[str] = []
         score = 3  # baseline
@@ -177,6 +190,8 @@ class InxyLeadsMode(BaseMode):
                     reasons_bullets=reasons,
                     next_action="Manual review — non-target but crypto mentions",
                     use_cases=["pay_in"],
+                    sub_scores=sub_scores,
+                    evidence_summary=evidence_summary,
                 )
 
             return ScoringResult(
@@ -188,6 +203,8 @@ class InxyLeadsMode(BaseMode):
                 reason_short=f"Non-target: {llm_industry_name}",
                 reasons_bullets=reasons,
                 next_action="Skip or deprioritize",
+                sub_scores=sub_scores,
+                evidence_summary=evidence_summary,
             )
 
         # ── Agency: not auto-reject but uncertain ICP, score modestly ──
@@ -226,6 +243,8 @@ class InxyLeadsMode(BaseMode):
                 opener=_generate_opener(llm_industry_name, signals, domain),
                 next_action="Manual review before outreach" if score >= 4 else "Skip or deprioritize",
                 use_cases=use_cases,
+                sub_scores=sub_scores,
+                evidence_summary=evidence_summary,
             )
 
         # ── Industry scoring based on LLM classification ──
@@ -306,8 +325,26 @@ class InxyLeadsMode(BaseMode):
                 confidence = "Low"
             reasons.append(f"Risk flags: {', '.join(signals.risk_flags)}")
 
+        # ── Gate-based anti-fake: cancel signal boosts if gate not passed ──
+        if signals.has_crypto_signals and not sub_scores.gate_a_passed:
+            # Fully cancel crypto boost (+2 → 0)
+            score -= 2
+            reasons.append("Gate A not passed: crypto signal found but no payment flow evidence")
+        if signals.has_mass_payment_signals and not sub_scores.gate_c_passed:
+            # Fully cancel mass payment boost (+1 → 0)
+            score -= 1
+            reasons.append("Gate C not passed: mass payment keyword but no outbound flow evidence")
+
+        # Extra penalty when ALL evidence is from weak pages (blog/faq/about)
+        if signals.evidence and all(e.page_type in WEAK_PAGE_TYPES for e in signals.evidence):
+            score -= 2
+            reasons.append("All evidence from weak pages only (blog/faq/about)")
+
         # Cap score
         score = max(1, min(10, score))
+
+        # ── Sub-score summary in reasons ──
+        _append_sub_score_reasons(reasons, sub_scores)
 
         # ── Use case detection ──
         use_cases = _detect_use_cases(llm_industry_code, signals)
@@ -330,6 +367,8 @@ class InxyLeadsMode(BaseMode):
             opener=opener,
             next_action=next_action,
             use_cases=use_cases,
+            sub_scores=sub_scores,
+            evidence_summary=evidence_summary,
         )
 
     def _score_keywords_only(self, signals: SiteSignals, domain: str) -> ScoringResult:
@@ -340,6 +379,8 @@ class InxyLeadsMode(BaseMode):
         crypto_likelihood = "Low"
         business_model = _infer_business_model(signals)
         signal_strength = 0
+        sub_scores = signals.sub_scores
+        evidence_summary = _build_evidence_summary(signals)
 
         # Content site detection lowers score
         if signals.is_content_site:
@@ -434,8 +475,26 @@ class InxyLeadsMode(BaseMode):
                 confidence = "Low"
             reasons.append(f"Risk flags: {', '.join(signals.risk_flags)}")
 
+        # ── Gate-based anti-fake ──
+        if signals.has_crypto_signals and not sub_scores.gate_a_passed:
+            # Fully cancel crypto boost (+2 → 0)
+            score -= 2
+            reasons.append("Gate A not passed: crypto signal but no payment flow evidence")
+        if signals.has_mass_payment_signals and not sub_scores.gate_c_passed:
+            # Fully cancel mass payment boost (+1 → 0)
+            score -= 1
+            reasons.append("Gate C not passed: mass payment keyword but no outbound flow evidence")
+
+        # Extra penalty when ALL evidence is from weak pages (blog/faq/about)
+        if signals.evidence and all(e.page_type in WEAK_PAGE_TYPES for e in signals.evidence):
+            score -= 2
+            reasons.append("All evidence from weak pages only (blog/faq/about)")
+
         # Cap score
         score = max(1, min(10, score))
+
+        # ── Sub-score summary ──
+        _append_sub_score_reasons(reasons, sub_scores)
 
         # ── Use case detection ──
         use_cases = _detect_use_cases_by_name(top, signals)
@@ -457,7 +516,44 @@ class InxyLeadsMode(BaseMode):
             opener=opener,
             next_action=next_action,
             use_cases=use_cases,
+            sub_scores=sub_scores,
+            evidence_summary=evidence_summary,
         )
+
+
+def _build_evidence_summary(signals: SiteSignals) -> list[dict]:
+    """Build a concise evidence summary for output."""
+    items = []
+    for e in signals.top_evidence(12):
+        items.append({
+            "signal": e.signal_id,
+            "phrase": e.matched_phrase,
+            "page_type": e.page_type,
+            "weight": e.base_weight,
+            "need": e.target_need,
+        })
+    return items
+
+
+def _append_sub_score_reasons(reasons: list[str], sub_scores: SubScores) -> None:
+    """Add sub-score information to reasons bullets."""
+    parts = []
+    if sub_scores.score_a > 0:
+        gate = "gated" if not sub_scores.gate_a_passed else "open"
+        parts.append(f"A(acceptance)={sub_scores.score_a}/20 [{gate}]")
+    if sub_scores.score_b > 0:
+        gate = "gated" if not sub_scores.gate_b_passed else "open"
+        parts.append(f"B(treasury)={sub_scores.score_b}/20 [{gate}]")
+    if sub_scores.score_c > 0:
+        gate = "gated" if not sub_scores.gate_c_passed else "open"
+        parts.append(f"C(payout)={sub_scores.score_c}/20 [{gate}]")
+    if parts:
+        reasons.append(f"Sub-scores: {', '.join(parts)}")
+
+    # Add gate failure reasons
+    for reason in [sub_scores.gate_a_reason, sub_scores.gate_b_reason, sub_scores.gate_c_reason]:
+        if reason:
+            reasons.append(reason)
 
 
 def _detect_use_cases(industry_code: str, signals: SiteSignals) -> list[str]:

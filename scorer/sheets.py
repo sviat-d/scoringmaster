@@ -26,6 +26,9 @@ ENRICHED_HEADERS = [
     "Crypto Adoption Likelihood",
     "Risk Flags",
     "Score",
+    "Score A (Acceptance)",
+    "Score B (Treasury)",
+    "Score C (Payout)",
     "Category",
     "Reason",
     "Reasons",
@@ -92,6 +95,7 @@ def _find_domain_col(headers: list[str]) -> int | None:
 
 def _result_to_row(result: dict, mode_id: str) -> list[str]:
     """Convert scoring result dict to a row of enriched column values."""
+    sub = result.get("sub_scores", {})
     return [
         mode_id,
         result.get("industry", "Unknown"),
@@ -101,6 +105,9 @@ def _result_to_row(result: dict, mode_id: str) -> list[str]:
         result.get("crypto_adoption_likelihood", "Low"),
         ", ".join(result.get("risk_flags", [])),
         str(result.get("score", 1)),
+        str(sub.get("score_a", 0)),
+        str(sub.get("score_b", 0)),
+        str(sub.get("score_c", 0)),
         result.get("category", "Reject"),
         result.get("reason_short", ""),
         " \u2022 ".join(result.get("reasons_bullets", [])),

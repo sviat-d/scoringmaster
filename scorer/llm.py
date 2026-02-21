@@ -1,4 +1,4 @@
-"""LLM-based business classification — primary classification method.
+"""LLM-based business classification and financial flow confirmation.
 
 Primary provider:
 - Anthropic (Claude Haiku 4.5) — best value for classification, set ANTHROPIC_API_KEY
@@ -11,6 +11,8 @@ Additional providers (if configured):
 import os
 import json
 import logging
+
+from scorer.models import EvidenceItem, FlowConfirmation
 
 logger = logging.getLogger(__name__)
 
@@ -347,3 +349,163 @@ def is_non_target(classification: dict) -> bool:
     industry = classification.get("industry", "unknown")
     is_content = classification.get("is_content_site", False)
     return industry in NON_TARGET_INDUSTRIES or is_content
+
+
+# ── Financial flow confirmation (Step 4 of scoring pipeline) ──
+
+FLOW_CONFIRM_SYSTEM_PROMPT = """You are a financial analyst. Given evidence snippets from a company's website, determine whether specific financial flows exist.
+
+You are NOT classifying the business. You are confirming whether the website provides evidence of specific money flows.
+
+Return ONLY valid JSON:
+{
+  "outbound_obligations": true/false,
+  "outbound_confidence": 0.0-1.0,
+  "inbound_payment_acceptance": true/false,
+  "inbound_confidence": 0.0-1.0,
+  "cross_border_fx_exposure": true/false,
+  "cross_border_confidence": 0.0-1.0,
+  "likely_mass_payouts": true/false,
+  "mass_payout_confidence": 0.0-1.0,
+  "likely_stablecoin_treasury": true/false,
+  "stablecoin_confidence": 0.0-1.0,
+  "reasoning_summary": "2-4 sentences explaining your assessment",
+  "false_positive_risks": ["list of concerns about evidence quality"]
+}
+
+RULES:
+- "outbound_obligations": company has recurring payment obligations TO external parties (affiliates, sellers, freelancers, etc.)
+- "inbound_payment_acceptance": company accepts payments FROM customers/clients (checkout, invoices, subscriptions)
+- "cross_border_fx_exposure": company operates across borders with FX/currency exposure
+- "likely_mass_payouts": company likely needs to pay many recipients regularly
+- "likely_stablecoin_treasury": company could benefit from stablecoin-based treasury/settlement
+- Set confidence LOW if evidence comes mostly from blog/FAQ pages
+- Set confidence LOW if evidence is ambiguous or could be about a different company
+- Be skeptical: a company WRITING ABOUT payouts is different from a company DOING payouts"""
+
+
+async def confirm_financial_flows(
+    domain: str,
+    evidence: list[EvidenceItem],
+    industry: str,
+    provider: str = "",
+) -> FlowConfirmation | None:
+    """Use LLM to semantically confirm financial flows from evidence snippets.
+
+    Called only for leads with score >= 6 to validate high-scoring signals.
+    """
+    if not evidence:
+        return None
+
+    if not provider:
+        provider = _get_provider()
+    if not provider:
+        return None
+
+    # Build evidence summary for LLM
+    evidence_text = f"Domain: {domain}\nDetected industry: {industry}\n\nEvidence snippets:\n"
+    for i, e in enumerate(evidence[:15], 1):
+        evidence_text += (
+            f"\n{i}. [{e.signal_id}] (page: {e.page_type}, weight: {e.base_weight})\n"
+            f"   Matched: \"{e.matched_phrase}\"\n"
+            f"   Context: {e.snippet[:300]}\n"
+        )
+
+    user_prompt = f"""{evidence_text}
+
+Based on these evidence snippets, confirm or deny the financial flows. Return JSON only."""
+
+    try:
+        if provider == "anthropic":
+            content = await _call_anthropic_flow(user_prompt)
+        elif provider == "gemini":
+            content = await _call_gemini_flow(user_prompt)
+        else:
+            content = await _call_openai_flow(user_prompt)
+
+        if not content:
+            return None
+
+        # Strip markdown fences
+        if content.startswith("```"):
+            content = content.split("\n", 1)[1]
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
+
+        data = json.loads(content)
+        logger.info(f"LLM flow confirmation for {domain}: outbound={data.get('outbound_obligations')}, "
+                     f"inbound={data.get('inbound_payment_acceptance')}, "
+                     f"cross_border={data.get('cross_border_fx_exposure')}")
+
+        return FlowConfirmation(
+            outbound_obligations=data.get("outbound_obligations", False),
+            outbound_confidence=float(data.get("outbound_confidence", 0)),
+            inbound_payment_acceptance=data.get("inbound_payment_acceptance", False),
+            inbound_confidence=float(data.get("inbound_confidence", 0)),
+            cross_border_fx_exposure=data.get("cross_border_fx_exposure", False),
+            cross_border_confidence=float(data.get("cross_border_confidence", 0)),
+            likely_mass_payouts=data.get("likely_mass_payouts", False),
+            mass_payout_confidence=float(data.get("mass_payout_confidence", 0)),
+            likely_stablecoin_treasury=data.get("likely_stablecoin_treasury", False),
+            stablecoin_confidence=float(data.get("stablecoin_confidence", 0)),
+            reasoning_summary=data.get("reasoning_summary", ""),
+            false_positive_risks=data.get("false_positive_risks", []),
+        )
+    except json.JSONDecodeError as e:
+        logger.warning(f"LLM flow confirmation returned invalid JSON for {domain}: {e}")
+        return None
+    except Exception as e:
+        logger.warning(f"LLM flow confirmation failed for {domain}: {e}")
+        return None
+
+
+async def _call_anthropic_flow(user_prompt: str) -> str | None:
+    client = _get_anthropic_client()
+    if client is None:
+        return None
+    response = await client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=500,
+        system=FLOW_CONFIRM_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_prompt}],
+        temperature=0.1,
+    )
+    return response.content[0].text.strip()
+
+
+async def _call_openai_flow(user_prompt: str) -> str | None:
+    client = _get_openai_client()
+    if client is None:
+        return None
+    response = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": FLOW_CONFIRM_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.1,
+        max_tokens=500,
+    )
+    return response.choices[0].message.content.strip()
+
+
+async def _call_gemini_flow(user_prompt: str) -> str | None:
+    import google.generativeai as genai
+    model = _get_gemini_model()
+    if model is None:
+        return None
+    # Use a separate model instance for flow confirmation
+    flow_model = genai.GenerativeModel(
+        "gemini-2.5-flash",
+        system_instruction=FLOW_CONFIRM_SYSTEM_PROMPT,
+    )
+    response = await flow_model.generate_content_async(
+        contents=user_prompt,
+        generation_config=genai.GenerationConfig(
+            temperature=0.1,
+            max_output_tokens=500,
+            response_mime_type="application/json",
+        ),
+    )
+    return response.text.strip()
