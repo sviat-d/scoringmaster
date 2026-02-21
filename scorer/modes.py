@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from scorer.extractor import SiteSignals
+    from scorer.models import SubScores, FlowConfirmation
 
 
 class ScoringResult:
@@ -23,6 +24,10 @@ class ScoringResult:
         reasons_bullets: list[str] | None = None,
         opener: str = "",
         next_action: str = "",
+        use_cases: list[str] | None = None,
+        sub_scores: SubScores | None = None,
+        flow_confirmation: FlowConfirmation | None = None,
+        evidence_summary: list[dict] | None = None,
     ):
         self.industry = industry
         self.business_model = business_model
@@ -35,6 +40,10 @@ class ScoringResult:
         self.reasons_bullets = reasons_bullets or []
         self.opener = opener
         self.next_action = next_action
+        self.use_cases = use_cases or []
+        self.sub_scores = sub_scores
+        self.flow_confirmation = flow_confirmation
+        self.evidence_summary = evidence_summary or []
 
     @property
     def category(self) -> str:
@@ -47,7 +56,7 @@ class ScoringResult:
         return "Reject"
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             "industry": self.industry,
             "business_model": self.business_model,
             "headcount_estimate": self.headcount_estimate,
@@ -60,7 +69,20 @@ class ScoringResult:
             "reasons_bullets": self.reasons_bullets,
             "opener": self.opener,
             "next_action": self.next_action,
+            "use_cases": self.use_cases,
+            "evidence_summary": self.evidence_summary,
         }
+        if self.sub_scores:
+            result["sub_scores"] = self.sub_scores.to_dict()
+        else:
+            result["sub_scores"] = {"score_a": 0, "score_b": 0, "score_c": 0,
+                                    "gate_a_passed": False, "gate_b_passed": False, "gate_c_passed": False}
+        if self.flow_confirmation:
+            result["flow_confirmation"] = {
+                "reasoning": self.flow_confirmation.reasoning_summary,
+                "false_positive_risks": self.flow_confirmation.false_positive_risks,
+            }
+        return result
 
 
 class BaseMode:

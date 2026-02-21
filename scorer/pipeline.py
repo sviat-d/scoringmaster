@@ -1,9 +1,9 @@
-"""Main scoring pipeline: crawl → LLM classify → extract signals → score → result."""
+"""Main scoring pipeline: crawl → LLM classify → extract evidence → score → confirm → result."""
 
 import asyncio
 import logging
 
-from scorer.crawler import crawl_domain_with_retry, DEFAULT_MAX_PAGES, EXTENDED_MAX_PAGES
+from scorer.crawler import crawl_domain_with_retry, pages_to_text, DEFAULT_MAX_PAGES, EXTENDED_MAX_PAGES
 from scorer.extractor import extract_signals
 from scorer.modes import get_mode
 from scorer import llm
@@ -15,6 +15,8 @@ import scorer.mode_founders  # noqa: F401
 logger = logging.getLogger(__name__)
 
 CONCURRENCY_LIMIT = 3
+# Only run flow confirmation for leads scoring at or above this threshold
+FLOW_CONFIRM_THRESHOLD = 6
 
 
 async def score_single(domain: str, mode_id: str, cache: dict, llm_provider: str = "") -> dict:
@@ -32,16 +34,16 @@ async def score_single(domain: str, mode_id: str, cache: dict, llm_provider: str
     if cache_key in cache:
         return cache[cache_key]
 
-    # 1) Crawl
+    # 1) Crawl — returns list[CrawledPage]
     pages = await crawl_domain_with_retry(domain, DEFAULT_MAX_PAGES)
 
     # 2) If too little content, try crawling more pages
-    all_text = "\n".join(pages.values())
+    all_text = pages_to_text(pages)
     if len(all_text) < 1000 and pages:
         extra_pages = await crawl_domain_with_retry(domain, EXTENDED_MAX_PAGES)
-        if len("\n".join(extra_pages.values())) > len(all_text):
+        if len(pages_to_text(extra_pages)) > len(all_text):
             pages = extra_pages
-            all_text = "\n".join(pages.values())
+            all_text = pages_to_text(pages)
 
     # 3) LLM business classification (primary method)
     classification = None
@@ -53,16 +55,62 @@ async def score_single(domain: str, mode_id: str, cache: dict, llm_provider: str
                 f"{classification.get('industry')} / {classification.get('business_type')}"
             )
 
-    # 4) Extract keyword-based signals (operational signals, risk flags, headcount)
+    # 4) Extract evidence-based signals (per-page, with sub-scores and gates)
     signals = extract_signals(pages)
 
-    # 5) Score using mode with LLM classification + keyword signals
+    # 5) Score using mode with LLM classification + evidence signals
     mode = get_mode(mode_id)
     rules_result = mode.score(signals, domain, classification)
-    result = rules_result.to_dict()
 
+    # 6) LLM flow confirmation for promising leads (score >= threshold)
+    if rules_result.score >= FLOW_CONFIRM_THRESHOLD and llm.is_available() and signals.evidence:
+        industry_name = rules_result.industry
+        flow_conf = await llm.confirm_financial_flows(
+            domain, signals.top_evidence(15), industry_name, provider=llm_provider,
+        )
+        if flow_conf:
+            rules_result.flow_confirmation = flow_conf
+            # LLM confirmation can adjust confidence
+            _apply_flow_confirmation(rules_result, flow_conf)
+
+    result = rules_result.to_dict()
     cache[cache_key] = result
     return result
+
+
+def _apply_flow_confirmation(result, flow_conf) -> None:
+    """Adjust scoring based on LLM flow confirmation."""
+    from scorer.models import FlowConfirmation
+
+    reasons = result.reasons_bullets
+
+    # If LLM says no outbound but we scored high on payout signals → downgrade
+    if not flow_conf.outbound_obligations and result.sub_scores:
+        if result.sub_scores.score_c > 6:
+            reasons.append(
+                f"LLM flow check: outbound obligations NOT confirmed "
+                f"(confidence: {flow_conf.outbound_confidence:.1f})"
+            )
+
+    # If LLM confirms flows with high confidence → boost confidence
+    max_conf = max(
+        flow_conf.outbound_confidence,
+        flow_conf.inbound_confidence,
+        flow_conf.cross_border_confidence,
+    )
+    if max_conf >= 0.8 and result.confidence != "High":
+        result.confidence = "High"
+        reasons.append("LLM flow confirmation: high confidence in financial flows")
+    elif max_conf < 0.3 and result.confidence == "High":
+        result.confidence = "Med"
+        reasons.append("LLM flow confirmation: low confidence, downgraded")
+
+    # Add false positive risks
+    if flow_conf.false_positive_risks:
+        reasons.append(f"FP risks: {'; '.join(flow_conf.false_positive_risks[:3])}")
+
+    if flow_conf.reasoning_summary:
+        reasons.append(f"LLM flow analysis: {flow_conf.reasoning_summary}")
 
 
 async def score_leads(

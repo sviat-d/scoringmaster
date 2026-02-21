@@ -175,10 +175,14 @@ ENRICHED_COLUMNS = [
     "Use Case",
     "Detected Industry",
     "Business Model",
+    "Product Use Cases",
     "Headcount Estimate",
     "Crypto Adoption Likelihood",
     "Risk Flags",
     "Score",
+    "Score A (Acceptance)",
+    "Score B (Treasury)",
+    "Score C (Payout)",
     "Category",
     "Reason",
     "Reasons",
@@ -207,10 +211,15 @@ def _build_csv(original_fields: list[str], enriched: list[dict], mode: str) -> s
         row["Use Case"] = mode
         row["Detected Industry"] = result.get("industry", "Unknown")
         row["Business Model"] = result.get("business_model", "Unknown")
+        row["Product Use Cases"] = ", ".join(result.get("use_cases", []))
         row["Headcount Estimate"] = result.get("headcount_estimate", "Unknown")
         row["Crypto Adoption Likelihood"] = result.get("crypto_adoption_likelihood", "Low")
         row["Risk Flags"] = ", ".join(result.get("risk_flags", []))
         row["Score"] = result.get("score", 1)
+        sub = result.get("sub_scores", {})
+        row["Score A (Acceptance)"] = sub.get("score_a", 0)
+        row["Score B (Treasury)"] = sub.get("score_b", 0)
+        row["Score C (Payout)"] = sub.get("score_c", 0)
         row["Category"] = result.get("category", "Reject")
         row["Reason"] = result.get("reason_short", "")
         row["Reasons"] = " \u2022 ".join(result.get("reasons_bullets", []))
